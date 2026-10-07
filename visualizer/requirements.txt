@@ -1,3 +1,7 @@
 streamlit>=1.32
 plotly>=5.18
 numpy>=1.25
+pandas>=2.0
+scipy>=1.11
+matplotlib>=3.8
+pybaselines>=1.0.0

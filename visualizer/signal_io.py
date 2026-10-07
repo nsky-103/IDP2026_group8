@@ -111,21 +111,39 @@ def load_window(
     end_s: float,
     fs_hz: float = DEFAULT_FS_HZ,
     max_points: int = 20_000,
+    method: str = "lttb",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load a time window and downsample for plotting.
 
+    ``method``:
+      - ``"lttb"`` — Largest-Triangle-Three-Buckets (Steinarsson 2013), guided
+        by Sensor 2 so fluorescence peaks/troughs survive aggressive downsampling.
+      - ``"stride"`` — every-nth sample (fast, may miss narrow spikes).
+
     Returns (t_seconds, sensor1, sensor2), each of length ≤ max_points.
     """
+    from lttb import downsample_lttb
+
     n = signal.shape[0]
     start_i, end_i = sample_range(start_s, end_s, n, fs_hz)
     window = signal[start_i:end_i]
 
     n_win = window.shape[0]
-    stride = max(1, n_win // max_points)
-    idx = np.arange(0, n_win, stride)
-    samples = start_i + idx
-    t = samples / fs_hz
-    s1 = window[idx, 0].astype(np.float64)
-    s2 = window[idx, 1].astype(np.float64)
-    return t, s1, s2
+    s1_full = window[:, 0].astype(np.float64)
+    s2_full = window[:, 1].astype(np.float64)
+    t_full = (start_i + np.arange(n_win, dtype=np.float64)) / fs_hz
+
+    if n_win <= max_points:
+        return t_full, s1_full, s2_full
+
+    if method == "stride":
+        stride = max(1, n_win // max_points)
+        idx = np.arange(0, n_win, stride)
+        return t_full[idx], s1_full[idx], s2_full[idx]
+
+    if method == "lttb":
+        # Guide on Sensor 2 (emission / fluorescence channel).
+        return downsample_lttb(t_full, s1_full, s2_full, max_points=max_points, guide=s2_full)
+
+    raise ValueError(f"Unknown downsample method: {method!r}")
