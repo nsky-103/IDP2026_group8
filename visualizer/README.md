@@ -21,7 +21,7 @@ Peak / feature detection is **optional** (expander in the sidebar) for teammate 
 
 ```bash
 cd visualizer
-python3.11 -m venv .venv
+python3.11 -m venv .venv  # Windows: py 3.11 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run app.py
