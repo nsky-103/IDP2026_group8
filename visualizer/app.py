@@ -7,7 +7,7 @@ Page layout
 -----------
     header   title · file info
     left     import · runs · channels · detection settings
-    center   full recording (time range) · window plot · all runs
+    center   full-recording overview · detail zoom
     right    selected event · events list
 
 Files
@@ -16,6 +16,7 @@ Files
     processing.py  detection pipeline wrappers (no Streamlit)
     plots.py       Plotly figures (no Streamlit)
     signal_io.py   CSV → NPY conversion + loading a time window
+    convert_jobs.py background CSV→NPY worker (keeps the UI responsive)
     lttb.py        LTTB downsampling for plots
 
 How to add a feature
@@ -31,7 +32,7 @@ remembered between clicks is stored in st.session_state:
     runs          {run name: {"source": csv path, "npy": npy path}}
     active_run    name of the selected run
     detections    {run name: detection result}
-    window        (start_s, end_s) of the time range slider
+    window        (start_s, end_s) viewing range (set by dragging on the overview)
     selected_event  event ID, e.g. "E3"
 """
 
@@ -40,29 +41,47 @@ from __future__ import annotations
 import html
 import importlib
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
+import convert_jobs
 import lttb
 import plots
 import processing
 import signal_io
 
-# Reload our own modules so code edits show up without restarting Streamlit.
+# Reload UI/plot helpers so edits show up without restarting Streamlit.
+# Do NOT reload convert_jobs: that would wipe the in-memory job registry
+# while a background conversion thread is still running.
 importlib.reload(lttb)
 importlib.reload(signal_io)
 importlib.reload(processing)
 importlib.reload(plots)
 
 
-DATA_DIR = (
-    Path(__file__).resolve().parent.parent.parent  # the folder that contains this repo
-    / "2025-10-29 Suction data for tumor size estimation" / "Suction data" / "Original"
-)
+# Prefer local course data if present; otherwise the friend's OneDrive-style path.
+_PROJECT = Path(__file__).resolve().parent.parent
+_DATA_CANDIDATES = [
+    _PROJECT
+    / "idp2023"
+    / "Test signals from previous years"
+    / "Suction data"
+    / "Original",
+    _PROJECT.parent.parent
+    / "2025-10-29 Suction data for tumor size estimation"
+    / "Suction data"
+    / "Original",
+]
+DATA_DIR = next((p for p in _DATA_CANDIDATES if p.exists()), _DATA_CANDIDATES[0])
 DEFAULT_CSV = DATA_DIR / "5. suction_HIGH_CONC_1ml_and_no_resuction.csv"
+DEFAULT_BLANK = (
+    _PROJECT / "idp2023" / "Test signals from previous years" / "just water.csv"
+)
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "marginum_uploads"
 
 DETECTION_ALGORITHMS = ["Method A · Threshold"]  # add new algorithms here
@@ -163,31 +182,57 @@ class Settings:
     detect_clicked: bool
 
 
-def add_run(path: Path) -> None:
-    """Convert a CSV to NPY (once) and add it to the runs list."""
-    progress = st.progress(0.0, text="Preparing signal…")
-
-    def on_progress(p: float) -> None:
-        progress.progress(min(max(p, 0.0), 1.0), text=f"Converting CSV → NPY… {p:.0%}")
-
-    try:
-        is_csv = path.suffix.lower() == ".csv"
-        npy = signal_io.ensure_npy(path, progress_callback=on_progress if is_csv else None)
-    except Exception as exc:
-        st.error(f"Failed to prepare signal: {exc}")
-        return
-    finally:
-        progress.empty()
-
-    name = path.stem
-    get_runs()[name] = {"source": str(path), "npy": str(npy)}
+def _register_run(source: Path, npy: Path) -> None:
+    """Add a finished conversion to the runs list and select it."""
+    name = source.stem
+    get_runs()[name] = {"source": str(source), "npy": str(npy)}
     get_detections().pop(name, None)
     st.session_state["active_run"] = name
     reset_view()
 
 
+def queue_convert(path: Path) -> None:
+    """Kick off background CSV→NPY (or instant npy/cache). Does not block the UI."""
+    convert_jobs.start_convert(Path(path))
+
+
+def poll_convert_jobs() -> None:
+    """Show progress for background jobs; register runs when they finish."""
+    jobs = convert_jobs.all_jobs()
+    if not jobs:
+        return
+
+    any_running = False
+    just_finished = False
+    for job in jobs:
+        source = Path(job.source)
+        if job.status in ("queued", "running"):
+            any_running = True
+            st.progress(
+                min(max(job.progress, 0.0), 1.0),
+                text=f"{source.name}: {job.message} ({job.progress:.0%})",
+            )
+        elif job.status == "done" and job.npy_path:
+            _register_run(source, Path(job.npy_path))
+            convert_jobs.clear_job(source)
+            st.toast(f"Loaded {source.name}", icon="✅")
+            just_finished = True
+        elif job.status == "error":
+            st.error(f"{source.name}: {job.error or job.message}")
+            convert_jobs.clear_job(source)
+            just_finished = True
+
+    if any_running:
+        st.caption("Conversion runs in the background — you can keep using the UI.")
+        time.sleep(0.4)
+        st.rerun()
+    elif just_finished:
+        st.rerun()
+
+
 def render_import() -> None:
     section("Import")
+    poll_convert_jobs()
 
     uploads = st.file_uploader(
         "Drop CSV files here",
@@ -197,14 +242,16 @@ def render_import() -> None:
     )
     # The uploader keeps its files on every rerun, so remember which ones we already added.
     added = st.session_state.setdefault("added_uploads", set())
+    started = False
     for file in uploads or []:
         if (file.name, file.size) in added:
             continue
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         saved_path = UPLOAD_DIR / file.name
         saved_path.write_bytes(file.getbuffer())
-        add_run(saved_path)
+        queue_convert(saved_path)
         added.add((file.name, file.size))
+        started = True
 
     with st.expander("…or load from a local path", expanded=not get_runs()):
         path_text = st.text_input(
@@ -213,9 +260,14 @@ def render_import() -> None:
         ).strip()
         if st.button("Load", type="primary", use_container_width=True):
             if path_text and Path(path_text).exists():
-                add_run(Path(path_text))
+                queue_convert(Path(path_text))
+                started = True
             else:
                 st.error("File not found. Check the path.")
+
+    # Load click runs after poll_convert_jobs(); force a rerun so polling starts.
+    if started:
+        st.rerun()
 
 
 def render_runs() -> None:
@@ -259,6 +311,7 @@ def render_left_panel() -> Settings:
         show_rejected = st.checkbox("Show rejected candidates (gray)", value=True)
         blank_path = st.text_input(
             "Blank (just water) CSV — optional noise floor",
+            value=str(DEFAULT_BLANK) if DEFAULT_BLANK.exists() else "",
         )
     detect_clicked = st.button(
         "Detect peaks",
@@ -314,34 +367,187 @@ def run_detection(run_name: str, settings: Settings) -> None:
     st.rerun()  # redraw the page so the left panel shows the new event count
 
 
-def render_full_recording(total_s: float) -> tuple[float, float]:
-    """Time range slider for the whole recording. Returns (start_s, end_s)."""
+def _ensure_window(total_s: float) -> tuple[float, float]:
     window = st.session_state.get("window")
-    if window is None or window[1] > total_s:
-        st.session_state["window"] = (0.0, min(total_s, DEFAULT_WINDOW_S))
+    if window is None or window[1] > total_s or window[0] < 0:
+        st.session_state["window"] = (0.0, min(float(total_s), DEFAULT_WINDOW_S))
+    return st.session_state["window"]
 
-    with st.container(border=True):
-        section(f"Full recording · {fmt_time(total_s)}", "move the slider to zoom")
-        return st.slider(
-            "Time range (s)",
-            min_value=0.0,
-            max_value=float(total_s),
-            step=max(total_s / 1000.0, 0.01),
-            key="window",
-            label_visibility="collapsed",
+
+def _set_window(start_s: float, end_s: float, total_s: float, *, bump_overview: bool = False) -> None:
+    """Store viewing window; optionally reset overview chart selection state."""
+    a = max(0.0, min(float(start_s), float(total_s)))
+    b = max(0.0, min(float(end_s), float(total_s)))
+    if b < a:
+        a, b = b, a
+    if b - a < 0.5:
+        b = min(float(total_s), a + 0.5)
+    st.session_state["window"] = (float(a), float(b))
+    if bump_overview:
+        st.session_state["_overview_chart_gen"] = (
+            st.session_state.get("_overview_chart_gen", 0) + 1
         )
 
 
-def render_window(signal, run_name: str, start_s: float, end_s: float, settings: Settings) -> None:
-    """Plot of the selected time range, with detected peaks."""
+def _window_from_overview_event(event, total_s: float) -> tuple[float, float] | None:
+    """Parse a horizontal box selection on the overview into (start, end)."""
+    try:
+        boxes = event.selection.box  # type: ignore[attr-defined]
+    except Exception:
+        boxes = []
+    if not boxes:
+        return None
+    xs = boxes[0].get("x") or []
+    if len(xs) < 2:
+        return None
+    a, b = float(min(xs)), float(max(xs))
+    a = max(0.0, min(a, float(total_s)))
+    b = max(0.0, min(b, float(total_s)))
+    if b - a < 0.5:
+        b = min(float(total_s), a + 0.5)
+    return float(a), float(b)
+
+
+def render_full_recording(
+    signal,
+    run_name: str,
+    total_s: float,
+    settings: Settings,
+) -> tuple[float, float]:
+    """Top strip: whole-recording waveform; drag horizontally to set the window."""
+    start_s, end_s = _ensure_window(total_s)
+
+    with st.container(border=True):
+        section(
+            f"Full recording · {fmt_time(total_s)}",
+            "drag horizontally on the chart to set the viewing range (start → end)",
+        )
+        st.caption(
+            f"Viewing `{fmt_time(start_s)}` – `{fmt_time(end_s)}` · "
+            "black frame = current range"
+        )
+
+        if settings.channels:
+            t, s1, s2 = signal_io.load_window(
+                signal, 0.0, total_s,
+                fs_hz=settings.fs_hz,
+                max_points=min(4_000, settings.max_points),
+                method="stride",
+            )
+            detection = get_detections().get(run_name)
+            fig = plots.overview_figure(
+                t, s1, s2,
+                channels=settings.channels,
+                window=(start_s, end_s),
+                events=detection["events"] if detection else None,
+                height=180,
+            )
+            gen = st.session_state.get("_overview_chart_gen", 0)
+            event = st.plotly_chart(
+                fig,
+                use_container_width=True,
+                key=f"overview_chart_{gen}",
+                on_select="rerun",
+                selection_mode="box",
+                config={
+                    "displayModeBar": False,
+                    "scrollZoom": False,
+                    "doubleClick": False,
+                },
+            )
+            picked = _window_from_overview_event(event, total_s)
+            if picked is not None:
+                sig = (round(picked[0], 4), round(picked[1], 4))
+                prev = st.session_state.get("_overview_sel_sig")
+                if sig != prev:
+                    st.session_state["_overview_sel_sig"] = sig
+                    _set_window(picked[0], picked[1], total_s)
+                    st.rerun()
+        else:
+            st.caption("Select at least one channel to show the overview.")
+
+        return st.session_state["window"]
+
+
+def _adjust_window(total_s: float, factor: float) -> None:
+    """Zoom the detail window around its center (factor < 1 zooms in).
+
+    When the window hits an edge, expand/shrink the free side so Zoom out
+    always widens the visible range (trackpad scroll alone is unreliable).
+    """
+    start, end = _ensure_window(total_s)
+    center = 0.5 * (start + end)
+    width = max(0.5, min((end - start) * factor, float(total_s)))
+    new_start = center - 0.5 * width
+    new_end = center + 0.5 * width
+    if new_start < 0.0:
+        new_end = min(float(total_s), new_end - new_start)
+        new_start = 0.0
+    if new_end > total_s:
+        new_start = max(0.0, new_start - (new_end - total_s))
+        new_end = float(total_s)
+    _set_window(new_start, new_end, total_s, bump_overview=True)
+
+
+def _nudge_window(total_s: float, direction: float) -> None:
+    """Pan the detail window left (−1) or right (+1) by 50% of its width."""
+    start, end = _ensure_window(total_s)
+    width = end - start
+    shift = direction * 0.5 * width
+    new_start = start + shift
+    new_end = end + shift
+    if new_start < 0:
+        new_end -= new_start
+        new_start = 0.0
+    if new_end > total_s:
+        new_start -= new_end - total_s
+        new_end = total_s
+    _set_window(max(0.0, new_start), new_end, total_s, bump_overview=True)
+
+
+def render_window(
+    signal,
+    run_name: str,
+    start_s: float,
+    end_s: float,
+    settings: Settings,
+    total_s: float,
+) -> None:
+    """Middle: zoomed detail of the selected window."""
     with st.container(border=True):
         event_id = st.session_state.get("selected_event")
-        title = f"Event {event_id}" if event_id else "Window"
-        st.markdown(f"**{title}** &nbsp; `{fmt_time(start_s)} – {fmt_time(end_s)}`")
+        title = f"Event {event_id}" if event_id else "Detail window"
+        st.markdown(
+            f"**{title}** &nbsp; `{fmt_time(start_s)} – {fmt_time(end_s)}`"
+        )
+
+        # Explicit zoom / pan — Streamlit trackpad scrollZoom is unreliable
+        z1, z2, z3, z4, z5, z6 = st.columns(6)
+        if z1.button("➖ Zoom out", use_container_width=True, key="zoom_out"):
+            _adjust_window(total_s, factor=2.5)
+            st.rerun()
+        if z2.button("➕ Zoom in", use_container_width=True, key="zoom_in"):
+            _adjust_window(total_s, factor=0.5)
+            st.rerun()
+        if z3.button("◀ Pan left", use_container_width=True, key="pan_left"):
+            _nudge_window(total_s, direction=-1.0)
+            st.rerun()
+        if z4.button("▶ Pan right", use_container_width=True, key="pan_right"):
+            _nudge_window(total_s, direction=1.0)
+            st.rerun()
+        if z5.button("↺ Default", use_container_width=True, key="zoom_reset"):
+            _set_window(0.0, min(total_s, DEFAULT_WINDOW_S), total_s, bump_overview=True)
+            st.rerun()
+        if z6.button("⛶ Fit all", use_container_width=True, key="zoom_fit_all"):
+            _set_window(0.0, float(total_s), total_s, bump_overview=True)
+            st.rerun()
 
         if not settings.channels:
             st.warning("Select at least one channel.")
             return
+
+        # Re-read window after possible button updates (same run; buttons call rerun)
+        start_s, end_s = st.session_state["window"]
 
         t, s1, s2 = signal_io.load_window(
             signal, start_s, end_s,
@@ -357,14 +563,42 @@ def render_window(signal, run_name: str, start_s: float, end_s: float, settings:
             end_s=end_s,
             events=detection["events"] if detection else None,
             show_rejected=settings.show_rejected,
+            height=420,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        # Pan with drag is easier than box-zoom for trackpads
+        fig.update_layout(dragmode="pan")
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            key="detail_chart",
+            config={
+                **plots.PLOTLY_ZOOM_CONFIG,
+                "scrollZoom": True,
+                "modeBarButtonsToAdd": ["zoom2d", "pan2d", "autoScale2d", "resetScale2d"],
+            },
+        )
+        st.caption(
+            "Zoom out / Fit all change the black frame on the top graph. "
+            "Drag the chart to pan; use toolbar 🔍 for box-zoom."
+        )
 
-
-def render_all_runs() -> None:
-    with st.container(border=True):
-        section("All runs", f"{len(get_runs())} loaded")
-        st.caption("Coming soon.")  # TODO: overview of every run
+        # Optional: peak stem overview kept out of the main 3-stack
+        if detection is not None:
+            with st.expander("Peak stems (optional)", expanded=False):
+                proc2 = detection.get("proc2") or {}
+                stem = plots.peaks_overview_figure(
+                    events=detection["events"],
+                    corrected_t=proc2.get("t"),
+                    corrected=proc2.get("corrected"),
+                    threshold=(detection.get("noise") or {}).get("threshold"),
+                    show_rejected=settings.show_rejected,
+                )
+                st.plotly_chart(
+                    stem,
+                    use_container_width=True,
+                    key="peaks_stem_chart",
+                    config=plots.PLOTLY_ZOOM_CONFIG,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -458,9 +692,9 @@ def main() -> None:
     with center:
         if settings.detect_clicked:
             run_detection(run_name, settings)
-        start_s, end_s = render_full_recording(total_s)
-        render_window(signal, run_name, start_s, end_s, settings)
-        render_all_runs()
+        # Overview (top) → detail zoom (middle).
+        start_s, end_s = render_full_recording(signal, run_name, total_s, settings)
+        render_window(signal, run_name, start_s, end_s, settings, total_s=total_s)
 
     with right:
         render_selected_event(run_name)

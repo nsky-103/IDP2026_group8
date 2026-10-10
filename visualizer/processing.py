@@ -19,8 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Places we look for the fluosense_code_only folder (first one that exists wins).
 FLUOSENSE_CANDIDATES = [
-    REPO_ROOT / "fluosense_code_only",          # inside the repo
-    REPO_ROOT.parent / "fluosense_code_only",   # next to the repo, e.g. C:\UEF\idp\fluosense_code_only
+    REPO_ROOT / "fluosense_code_only",          # Industrial Project/fluosense_code_only
+    REPO_ROOT.parent / "fluosense_code_only",   # next to IDP2026_group8 clone
+    REPO_ROOT / "IDP2026_group8" / "fluosense_code_only",
 ]
 
 
