@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Measurement data and derived files (see the data policy in visualizer/README.md)
+*.csv
+*.npy
+*.npz
+*.zip
+*.7z
