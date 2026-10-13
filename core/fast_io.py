@@ -1,0 +1,263 @@
+"""Fast access to large Marginum CSV recordings (two integer columns: adc1, adc2).
+
+Four building blocks, meant to be used in this order so the user never waits:
+
+    idx = build_index(csv)                      # ~1-2 s: byte offset <-> row number
+    pv  = preview(csv, idx)                     # < 1 s: rough min/max over the whole file
+    t, a1, a2 = read_window(csv, idx, 600, 610) # tens of ms: exact samples of one window
+    summ = summarize(idx)                       # ~12 s for 7.6 GB with 4 workers, run in the background
+
+``summarize`` gives the 1 kHz mean/min/max for the exact overview and for analysis.
+Zoomed windows come straight from the CSV via ``read_window``, so a full-rate copy is not needed.
+If one is wanted anyway, ``convert_to_npy`` writes the same (N, 2) int16 ``.npy`` file as
+``signal_io.convert_csv_to_npy`` (~12 s for 7.6 GB with 4 workers).
+
+Worker processes need about 0.4 GB of RAM each. Callers that start the pool must be
+importable modules (Windows uses "spawn"), and scripts must use ``if __name__ == "__main__":``.
+"""
+
+from __future__ import annotations
+
+import io
+import os
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+DTYPE = np.int16
+DEFAULT_FS_HZ = 50_000.0
+WORKER_RAM_GB = 0.4
+
+
+def default_workers(max_workers: int = 4) -> int:
+    return max(1, min(max_workers, os.cpu_count() or 1))
+
+
+@dataclass(frozen=True)
+class CsvIndex:
+    """Row number at the start of each block of the file."""
+
+    path: Path
+    byte_starts: np.ndarray  # first byte of each block (always the start of a line)
+    byte_ends: np.ndarray
+    row_starts: np.ndarray   # data row number of the first line of each block
+    n_rows: int
+
+    def block_of_row(self, row: int) -> int:
+        return int(np.searchsorted(self.row_starts, row, side="right") - 1)
+
+
+# ---------------------------------------------------------------- index
+
+def _header_bytes(path: Path) -> int:
+    with open(path, "rb") as f:
+        first = f.readline()
+    if not first[:1].isalpha():
+        raise ValueError(f"Expected a header line like 'adc1,adc2' in {path}, got {first[:40]!r}")
+    return len(first)
+
+
+def _block_bounds(path: Path, n_blocks: int) -> list[tuple[int, int]]:
+    size = path.stat().st_size
+    start = _header_bytes(path)
+    edges = [start]
+    with open(path, "rb") as f:
+        for k in range(1, n_blocks):
+            pos = start + (size - start) * k // n_blocks
+            if pos <= edges[-1]:
+                continue
+            f.seek(pos)
+            f.readline()
+            if f.tell() < size and f.tell() > edges[-1]:
+                edges.append(f.tell())
+    edges.append(size)
+    return list(zip(edges[:-1], edges[1:]))
+
+
+def _count_lines(args: tuple[str, int, int]) -> int:
+    path, a, b = args
+    n = 0
+    with open(path, "rb") as f:
+        f.seek(a)
+        left = b - a
+        while left > 0:
+            buf = f.read(min(left, 16 << 20))
+            n += buf.count(b"\n")
+            left -= len(buf)
+    return n
+
+
+def build_index(csv_path: str | Path, n_blocks: int = 1024, workers: int | None = None) -> CsvIndex:
+    """Count lines per block in parallel. Reads the file once, parses nothing."""
+    path = Path(csv_path)
+    bounds = _block_bounds(path, n_blocks)
+    with ProcessPoolExecutor(workers or default_workers()) as ex:
+        counts = list(ex.map(_count_lines, [(str(path), a, b) for a, b in bounds], chunksize=16))
+    with open(path, "rb") as f:
+        f.seek(-1, os.SEEK_END)
+        if f.read(1) != b"\n":
+            counts[-1] += 1  # last line without a trailing newline
+    counts = np.asarray(counts, dtype=np.int64)
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    return CsvIndex(path, np.array([a for a, _ in bounds], np.int64),
+                    np.array([b for _, b in bounds], np.int64), starts, int(counts.sum()))
+
+
+# ---------------------------------------------------------------- reading
+
+def _parse(buf: bytes) -> np.ndarray:
+    if not buf.strip():
+        return np.empty((0, 2), DTYPE)
+    return pd.read_csv(io.BytesIO(buf), header=None, dtype=DTYPE, engine="c").to_numpy()
+
+
+def _read_bytes(path: Path, a: int, b: int) -> bytes:
+    with open(path, "rb") as f:
+        f.seek(a)
+        return f.read(b - a)
+
+
+def read_rows(index: CsvIndex, row_start: int, row_end: int) -> np.ndarray:
+    """Exact rows [row_start, row_end) as an (n, 2) int16 array, without converting the file."""
+    row_start = max(0, row_start)
+    row_end = min(index.n_rows, row_end)
+    if row_end <= row_start:
+        return np.empty((0, 2), DTYPE)
+    b0, b1 = index.block_of_row(row_start), index.block_of_row(row_end - 1)
+    data = _parse(_read_bytes(index.path, int(index.byte_starts[b0]), int(index.byte_ends[b1])))
+    off = row_start - int(index.row_starts[b0])
+    return data[off: off + (row_end - row_start)]
+
+
+def read_window(index: CsvIndex, start_s: float, end_s: float,
+                fs_hz: float = DEFAULT_FS_HZ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Exact samples between start_s and end_s. Returns (t_seconds, adc1, adc2)."""
+    r0, r1 = int(start_s * fs_hz), int(end_s * fs_hz)
+    data = read_rows(index, r0, r1)
+    t = (max(0, r0) + np.arange(len(data))) / fs_hz
+    return t, data[:, 0], data[:, 1]
+
+
+def _row_at_byte(pos: int, index: CsvIndex | None, header: int, bytes_per_row: float) -> float:
+    """Approximate row number at a byte position (exact at block starts when an index exists)."""
+    if index is None:
+        return (pos - header) / bytes_per_row
+    b = int(np.searchsorted(index.byte_starts, pos, side="right") - 1)
+    a, e = int(index.byte_starts[b]), int(index.byte_ends[b])
+    rows_in_block = (index.row_starts[b + 1] if b + 1 < len(index.row_starts) else index.n_rows) - index.row_starts[b]
+    return float(index.row_starts[b]) + (pos - a) / max(1, e - a) * rows_in_block
+
+
+def preview(csv_path: str | Path, index: CsvIndex | None = None, n_points: int = 2000,
+            block_bytes: int = 8192, fs_hz: float = DEFAULT_FS_HZ) -> dict[str, np.ndarray]:
+    """Rough overview from n_points short reads spread over the file.
+
+    Works before the index exists (times then come from the average line length).
+    Only about n_points * block_bytes bytes are read, so short peaks between the
+    read positions are missed. Show it as an approximation until the full
+    conversion is done.
+    """
+    path = Path(csv_path)
+    header = _header_bytes(path)
+    end = path.stat().st_size
+    with open(path, "rb") as f:
+        f.seek(header)
+        sample = f.read(1 << 16)
+    bytes_per_row = len(sample) / max(1, sample.count(b"\n"))
+
+    positions = np.linspace(header, max(header, end - block_bytes), n_points).astype(np.int64)
+    t, mins, maxs = [], [], []
+    with open(path, "rb") as f:
+        for pos in positions:
+            f.seek(pos)
+            buf = f.read(block_bytes)
+            first = 0 if pos == header else buf.find(b"\n") + 1
+            last = buf.rfind(b"\n") + 1
+            chunk = _parse(buf[first:last])
+            if not len(chunk):
+                continue
+            t.append(_row_at_byte(int(pos + first), index, header, bytes_per_row) / fs_hz)
+            mins.append(chunk.min(axis=0))
+            maxs.append(chunk.max(axis=0))
+    mins, maxs = np.array(mins), np.array(maxs)
+    return {"t": np.array(t), "adc1_min": mins[:, 0], "adc1_max": maxs[:, 0],
+            "adc2_min": mins[:, 1], "adc2_max": maxs[:, 1]}
+
+
+# ---------------------------------------------------------------- 1 kHz summary
+
+def _summarize_block(args: tuple[str, int, int, int, int]) -> tuple:
+    csv_path, a, b, row_start, factor = args
+    data = _parse(_read_bytes(Path(csv_path), a, b)).astype(np.int32)
+    groups = (row_start + np.arange(len(data))) // factor
+    cuts = np.flatnonzero(np.diff(groups)) + 1
+    starts = np.concatenate([[0], cuts])
+    return (int(groups[0]), np.add.reduceat(data, starts, axis=0), np.diff(np.append(starts, len(data))),
+            np.minimum.reduceat(data, starts, axis=0), np.maximum.reduceat(data, starts, axis=0))
+
+
+def summarize(index: CsvIndex, factor: int = 50, workers: int | None = None,
+              progress_callback=None) -> dict[str, np.ndarray]:
+    """Mean, min and max of every `factor` samples (50 -> 1 ms at 50 kHz), both channels.
+
+    Enough for the exact whole-recording overview and for analysis at 1 kHz;
+    a 4.7 h recording gives about 270 MB instead of a 3.4 GB full-rate copy.
+    Full-rate samples for a zoomed window come from read_window().
+    """
+    n_groups = -(-index.n_rows // factor)
+    total = np.zeros((n_groups, 2), np.int32)   # 50 samples x 4095 fits easily
+    count = np.zeros(n_groups, np.int16)
+    lo = np.full((n_groups, 2), np.iinfo(DTYPE).max, DTYPE)
+    hi = np.full((n_groups, 2), np.iinfo(DTYPE).min, DTYPE)
+    jobs = [(str(index.path), int(a), int(b), int(r), factor)
+            for a, b, r in zip(index.byte_starts, index.byte_ends, index.row_starts)]
+    with ProcessPoolExecutor(workers or default_workers()) as ex:
+        for i, (g0, s, c, mn, mx) in enumerate(ex.map(_summarize_block, jobs, chunksize=4)):
+            sl = slice(g0, g0 + len(c))
+            total[sl] += s
+            count[sl] += c
+            lo[sl] = np.minimum(lo[sl], mn)
+            hi[sl] = np.maximum(hi[sl], mx)
+            if progress_callback:
+                progress_callback((i + 1) / len(jobs))
+    return {"mean": (total / count[:, None].astype(np.float32)).astype(np.float32),
+            "min": lo, "max": hi,
+            "fs_hz": DEFAULT_FS_HZ / factor}
+
+
+# ---------------------------------------------------------------- conversion
+
+def _convert_block(args: tuple[str, str, int, int, int, int]) -> int:
+    csv_path, npy_path, a, b, row_start, n_expected = args
+    data = _parse(_read_bytes(Path(csv_path), a, b))
+    if len(data) != n_expected:
+        raise ValueError(f"Block at byte {a}: parsed {len(data)} rows, expected {n_expected}")
+    out = np.load(npy_path, mmap_mode="r+")
+    out[row_start: row_start + len(data)] = data
+    del out  # the OS writes the pages back; an explicit flush per block is much slower
+    return len(data)
+
+
+def convert_to_npy(csv_path: str | Path, index: CsvIndex | None = None, npy_path: str | Path | None = None,
+                   workers: int | None = None, progress_callback=None) -> Path:
+    """Parallel CSV -> (N, 2) int16 .npy, the same format as signal_io.convert_csv_to_npy."""
+    csv_path = Path(csv_path)
+    index = index or build_index(csv_path, workers=workers)
+    npy_path = Path(npy_path) if npy_path else csv_path.with_suffix(".npy")
+
+    out = np.lib.format.open_memmap(npy_path, mode="w+", dtype=DTYPE, shape=(index.n_rows, 2))
+    del out
+
+    counts = np.diff(np.append(index.row_starts, index.n_rows))
+    jobs = [(str(csv_path), str(npy_path), int(a), int(b), int(r), int(c))
+            for a, b, r, c in zip(index.byte_starts, index.byte_ends, index.row_starts, counts)]
+    done = 0
+    with ProcessPoolExecutor(workers or default_workers()) as ex:
+        for n in ex.map(_convert_block, jobs, chunksize=4):
+            done += n
+            if progress_callback:
+                progress_callback(done / index.n_rows)
+    return npy_path
