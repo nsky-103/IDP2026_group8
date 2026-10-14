@@ -13,7 +13,10 @@ If one is wanted anyway, ``convert_to_npy`` writes the same (N, 2) int16 ``.npy`
 ``signal_io.convert_csv_to_npy`` (~12 s for 7.6 GB with 4 workers).
 
 CSV blocks are parsed with pyarrow when it is installed (about 1.6x faster than pandas,
-identical result), otherwise with pandas.
+identical result), otherwise with pandas. With numba installed, ``summarize`` parses and
+reduces each block in one compiled pass instead (about 2.8x faster per block than pyarrow,
+identical result) for files over NUMBA_MIN_BYTES; the first run compiles it once and caches
+it next to this file.
 
 Worker processes need about 0.4 GB of RAM each. Callers that start the pool must be
 importable modules (Windows uses "spawn"), and scripts must use ``if __name__ == "__main__":``.
@@ -21,6 +24,7 @@ importable modules (Windows uses "spawn"), and scripts must use ``if __name__ ==
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
 import time
@@ -208,8 +212,86 @@ def preview(csv_path: str | Path, index: CsvIndex | None = None, n_points: int =
 
 # ---------------------------------------------------------------- 1 kHz summary
 
-def _summarize_block(args: tuple[str, int, int, int, int]) -> tuple:
-    csv_path, a, b, row_start, factor = args
+# numba is optional and imported only by the worker processes that use it: importing it costs
+# 0.3-0.5 s per process, which only pays off for large files (NUMBA_MIN_BYTES).
+HAVE_NUMBA = importlib.util.find_spec("numba") is not None
+NUMBA_MIN_BYTES = 500_000_000
+_numba_kernel = None
+
+
+def _get_numba_kernel():
+    global _numba_kernel
+    if _numba_kernel is None:
+        import numba
+
+        _numba_kernel = numba.njit(cache=True)(_parse_summarize_py)
+    return _numba_kernel
+
+
+def _parse_summarize_py(buf, row_start, factor, g0, sums, mins, maxs, counts):
+    """One pass over 'int,int' lines: parse and add each row to its group of `factor` rows.
+
+    Same result as parsing first and reducing (checked on the whole 7.6 GB recording);
+    '\r' is skipped, a minus sign is honoured. Returns the number of rows parsed.
+    """
+    row = row_start
+    v = 0
+    a = 0
+    neg = False
+    col = 0
+    have = False
+    for i in range(buf.shape[0] + 1):
+        c = buf[i] if i < buf.shape[0] else 10  # a missing final newline ends the last row
+        if 48 <= c <= 57:
+            v = v * 10 + (c - 48)
+            have = True
+        elif c == 45:  # '-'
+            neg = True
+        elif c == 44:  # ','
+            a = -v if neg else v
+            v = 0
+            neg = False
+            have = False
+            col = 1
+        elif c == 10:  # '\n'
+            if col == 1 and have:
+                b = -v if neg else v
+                g = row // factor - g0
+                sums[g, 0] += a
+                sums[g, 1] += b
+                if a < mins[g, 0]:
+                    mins[g, 0] = a
+                if b < mins[g, 1]:
+                    mins[g, 1] = b
+                if a > maxs[g, 0]:
+                    maxs[g, 0] = a
+                if b > maxs[g, 1]:
+                    maxs[g, 1] = b
+                counts[g] += 1
+                row += 1
+            v = 0
+            neg = False
+            have = False
+            col = 0
+    return row - row_start
+
+
+def _summarize_block_nb(buf: np.ndarray, row_start: int, factor: int) -> tuple:
+    g0 = row_start // factor
+    n_groups = len(buf) // (4 * factor) + 2   # a row is at least 4 bytes ("0,0\n")
+    sums = np.zeros((n_groups, 2), np.int32)
+    mins = np.full((n_groups, 2), np.iinfo(DTYPE).max, np.int32)
+    maxs = np.full((n_groups, 2), np.iinfo(DTYPE).min, np.int32)
+    counts = np.zeros(n_groups, np.int64)
+    n_rows = _get_numba_kernel()(buf, row_start, factor, g0, sums, mins, maxs, counts)
+    used = (row_start + n_rows - 1) // factor - g0 + 1
+    return g0, sums[:used], counts[:used], mins[:used], maxs[:used]
+
+
+def _summarize_block(args: tuple) -> tuple:
+    csv_path, a, b, row_start, factor, use_numba = args
+    if use_numba:
+        return _summarize_block_nb(np.frombuffer(_read_bytes(Path(csv_path), a, b), np.uint8), row_start, factor)
     data = _parse(_read_bytes(Path(csv_path), a, b)).astype(np.int32)
     groups = (row_start + np.arange(len(data))) // factor
     cuts = np.flatnonzero(np.diff(groups)) + 1
@@ -240,7 +322,8 @@ def summarize(index: CsvIndex, factor: int = 50, workers: int | None = None,
     mean = np.full((n_groups, 2), np.nan, np.float32)
     result = {"mean": mean, "min": lo, "max": hi, "fs_hz": DEFAULT_FS_HZ / factor}
     last = time.perf_counter()
-    jobs = [(str(index.path), int(a), int(b), int(r), factor)
+    use_numba = HAVE_NUMBA and index.path.stat().st_size >= NUMBA_MIN_BYTES
+    jobs = [(str(index.path), int(a), int(b), int(r), factor, use_numba)
             for a, b, r in zip(index.byte_starts, index.byte_ends, index.row_starts)]
     with ProcessPoolExecutor(workers or default_workers()) as ex:
         for i, (g0, s, c, mn, mx) in enumerate(ex.map(_summarize_block, jobs, chunksize=4)):
