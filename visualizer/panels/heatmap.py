@@ -52,7 +52,7 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings) -
         box = {"height": MAX_HEIGHT} if fig.layout.height > MAX_HEIGHT else {}
         with st.container(border=False, **box):
             st.plotly_chart(
-                fig, use_container_width=True, key=key,
+                fig, width="stretch", key=key,
                 # A callback (not "rerun") runs before the overview slider is drawn,
                 # so the window can still be changed.
                 on_select=functools.partial(_on_click, key, row_s, bin_s, total_s),

@@ -5,5 +5,5 @@ pandas>=2.0
 scipy>=1.11
 matplotlib>=3.8
 pybaselines>=1.0.0
-pyarrow>=14  # optional: core.fast_io parses CSV 1.6x faster than with pandas
 numba>=0.59  # optional: core.fast_io summarises files over 500 MB 2.8x faster per block
+pyarrow>=14.0.0
