@@ -4,11 +4,12 @@
     clean = preprocess(summ["mean"])        # denoised, baseline = 0, sigma per channel
 
 Steps per channel: median (3) -> Savitzky-Golay (7, order 3) -> ALS baseline subtracted,
-then sigma = noise level of the quietest 10% of 200 ms blocks.
+then sigma = noise level of the quietest 10% of 200 ms blocks, ignoring idle blocks (no flow).
 
 Contributions (see the README at the repository root):
 - The processing itself is Unmona's preprocessing (udgithubit/IDP, idp/method.py), marked below.
 - Input from fast_io and the output dict for detection.py: Sora.
+- Dropping idle blocks before sigma (GitHub #3): Sora, marked inside quiet_sigma.
 """
 
 from __future__ import annotations
@@ -57,11 +58,21 @@ def clean_channel(x: np.ndarray, params: dict = PARAMS) -> np.ndarray:
     return x - baseline(x, params)
 
 
-def quiet_sigma(x: np.ndarray, fs: float = FS_HZ, block_s: float = 0.2, frac: float = 0.10) -> float:
+def quiet_sigma(x: np.ndarray, fs: float = FS_HZ, block_s: float = 0.2, frac: float = 0.10,
+                idle_cut: float = 0.5) -> float:
     b = int(block_s * fs)
     n = len(x) // b
     s = np.sort(x[: n * b].reshape(n, b).std(1))
-    return float(np.sqrt(np.mean(s[: max(1, int(frac * n))] ** 2)))
+    # -- Changed by Sora (GitHub #3): drop idle blocks first --------------------------------
+    # Blocks with std below idle_cut x the median block std are periods with no flow. In
+    # recordings with long idle periods they made sigma so small that the threshold fell below
+    # the water wiggles and pieces merged ("good data hig middle low zero": 1 piece of 323 s
+    # -> 48 pieces). 0.3-0.6 all fix that and keep the Big pieces results; 0.7 loses zero
+    # pieces confirmed by adc1. 0.5 is the middle of that range (05_信号特性の実測/38_*.py).
+    if idle_cut:
+        s = s[s >= idle_cut * np.median(s)]
+    # -- end of change ----------------------------------------------------------------------
+    return float(np.sqrt(np.mean(s[: max(1, int(frac * len(s)))] ** 2)))
 # ---- end of Unmona's idea ---------------------------------------------------------------------
 
 
