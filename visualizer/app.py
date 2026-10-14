@@ -6,8 +6,8 @@ Run with:  streamlit run visualizer/app.py
 Page layout
 -----------
     header   title · file info
-    left     import · runs · channels · detection settings
-    center   full-recording overview · detail zoom
+    left     import · runs · channels · detection · heatmap settings
+    center   full-recording overview · detail zoom · activity heatmap
     right    selected event · events list
 
 Files
@@ -30,6 +30,7 @@ remembered between clicks is stored in st.session_state:
 
 from __future__ import annotations
 
+import functools
 import html
 import importlib
 import tempfile
@@ -37,6 +38,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -75,6 +77,14 @@ MAX_EVENTS_LISTED = 25
 DEFAULT_WINDOW_S = 30.0
 EVENT_ZOOM_S = 5.0
 
+HEATMAP_ROW_CHOICES = {"10 s": 10.0, "30 s": 30.0, "1 min": 60.0, "2 min": 120.0, "5 min": 300.0}
+HEATMAP_MAX_HEIGHT = 480  # px; taller heatmaps scroll
+HEATMAP_METRICS = {
+    "Sensor 2 activity (peak-to-peak)": ("ptp", 1),
+    "Sensor 1 activity (peak-to-peak)": ("ptp", 0),
+    "Detected events (count)": ("events", None),
+}
+
 CSS = """
 <style>
 .block-container { padding-top: 3.2rem; max-width: 100%; }
@@ -92,6 +102,9 @@ CSS = """
 .sv-card-label { font-size: 0.75rem; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.06em; }
 .sv-card-value { font-size: 1.8rem; font-weight: 700; }
 .sv-card-note { font-size: 0.75rem; opacity: 0.65; }
+/* Heatmap box: tighter than the default bordered container */
+.st-key-heatmap_box { padding: 0.5rem 0.6rem; }
+.st-key-heatmap_box .sv-section { margin-top: 0; }
 </style>
 """
 
@@ -153,6 +166,9 @@ class Settings:
     max_points: int
     downsample_method: str
     detect_clicked: bool
+    heatmap_row_s: float
+    heatmap_cells: int
+    heatmap_metric: str
 
 
 def _register_or_update_run(csv_path: Path, phase: str) -> None:
@@ -370,6 +386,14 @@ def render_left_panel() -> Settings:
     if run_name and run_name in get_runs() and not ready:
         st.caption("Waiting for 1 kHz summary…")
 
+    section("Heatmap")
+    row_label = st.selectbox("Row length", list(HEATMAP_ROW_CHOICES), index=2, key="hm_row")
+    heatmap_cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
+    metric_names = list(HEATMAP_METRICS)
+    if st.session_state.get("active_run") not in get_detections():
+        metric_names.remove("Detected events (count)")
+    heatmap_metric = st.selectbox("Colour by", metric_names, key="hm_metric")
+
     with st.expander("Display settings"):
         fs_hz = st.number_input(
             "Sample rate (Hz)",
@@ -391,6 +415,9 @@ def render_left_panel() -> Settings:
         max_points=max_points,
         downsample_method=downsample_method,
         detect_clicked=detect_clicked,
+        heatmap_row_s=HEATMAP_ROW_CHOICES[row_label],
+        heatmap_cells=heatmap_cells,
+        heatmap_metric=heatmap_metric,
     )
 
 
@@ -683,6 +710,81 @@ def render_window(
                 )
 
 
+def _event_counts(run_name: str, bin_s: float, n_bins: int) -> np.ndarray:
+    counts = np.zeros(n_bins)
+    for _, event in get_events(run_name):
+        i = int(event["t_peak"] // bin_s)
+        if 0 <= i < n_bins:
+            counts[i] += 1
+    return counts
+
+
+def render_time_heatmap(
+    recording: signal_io.Recording,
+    run_name: str,
+    total_s: float,
+    settings: Settings,
+) -> None:
+    """Bottom: whole recording folded into rows; click a cell to view it.
+
+    Peak-to-peak uses the 1 kHz summary envelope (not a full-rate NPY).
+    """
+    with st.container(border=True, key="heatmap_box"):
+        section("Activity heatmap")
+        if recording.phase != "ready" or recording.summary is None:
+            st.caption("Heatmap needs the 1 kHz summary (still building…).")
+            return
+
+        row_s = settings.heatmap_row_s
+        bin_s = row_s / settings.heatmap_cells
+        kind, channel = HEATMAP_METRICS[settings.heatmap_metric]
+        n_bins = max(1, int(np.ceil(total_s / bin_s - 1e-9)))
+        if kind == "events":
+            values = _event_counts(run_name, bin_s, n_bins)
+        else:
+            values = recording.binned_peak_to_peak(bin_s, channel=int(channel))
+
+        window = st.session_state.get("window")
+        fig = plots.time_heatmap_figure(
+            values, bin_s=bin_s, row_s=row_s, total_s=total_s,
+            window=window,
+        )
+        gen = st.session_state.get("_heatmap_chart_gen", 0)
+        key = f"heatmap_chart_{gen}"
+        box = {"height": HEATMAP_MAX_HEIGHT} if fig.layout.height > HEATMAP_MAX_HEIGHT else {}
+        with st.container(border=False, **box):
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                key=key,
+                on_select=functools.partial(_on_heatmap_click, key, row_s, bin_s, total_s),
+                selection_mode="points",
+                config={"displayModeBar": False},
+            )
+
+
+def _on_heatmap_click(key: str, row_s: float, bin_s: float, total_s: float) -> None:
+    """Centre the viewing window (same width) on the clicked heatmap cell."""
+    try:
+        points = st.session_state[key].selection.points
+    except (KeyError, AttributeError):
+        return
+    if not points:
+        return
+    point = points[0]
+    center = float(point["y"]) * row_s + float(point["x"])
+
+    w0, w1 = st.session_state.get("window") or (0.0, DEFAULT_WINDOW_S)
+    width = min(max(w1 - w0, bin_s), total_s)
+    start = min(max(0.0, center - 0.5 * width), total_s - width)
+    _set_window(start, start + width, total_s, bump_overview=True)
+    st.session_state["_heatmap_chart_gen"] = st.session_state.get("_heatmap_chart_gen", 0) + 1
+
+
+# ---------------------------------------------------------------------------
+# Right column
+# ---------------------------------------------------------------------------
+
 def render_selected_event(run_name: str) -> None:
     event_id = st.session_state.get("selected_event")
     event = dict(get_events(run_name)).get(event_id)
@@ -787,6 +889,7 @@ def main() -> None:
                 run_detection(run_name, settings, recording=recording)
         start_s, end_s = render_full_recording(recording, run_name, total_s, settings)
         render_window(recording, run_name, start_s, end_s, settings, total_s=total_s)
+        render_time_heatmap(recording, run_name, total_s, settings)
 
     with right:
         render_selected_event(run_name)

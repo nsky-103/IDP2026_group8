@@ -271,6 +271,121 @@ def overview_figure(
     return fig
 
 
+def _fmt_mmss(seconds: float) -> str:
+    seconds = int(round(seconds))
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
+def time_heatmap_figure(
+    values: np.ndarray,
+    bin_s: float,
+    row_s: float,
+    total_s: float,
+    window: tuple[float, float] | None = None,
+    colorscale: str = "Cividis",
+    colorbar_title: str = "",
+) -> go.Figure:
+    """
+    Recording folded into rows of ``row_s`` seconds (like lines of text):
+    row r, column c is the bin starting at ``r * row_s + c * bin_s``.
+
+    ``values`` holds one number per bin in time order (e.g. from
+    ``signal_io.binned_peak_to_peak``). The current viewing window is outlined
+    in every row it touches. A transparent marker sits on each cell so the app
+    can pick up clicks (Plotly heatmaps do not report selections themselves).
+    """
+    cols = max(1, int(round(row_s / bin_s)))
+    n_rows = max(1, -(-len(values) // cols))
+    grid = np.full(n_rows * cols, np.nan)
+    grid[: len(values)] = values
+    grid = grid.reshape(n_rows, cols)
+
+    x = (np.arange(cols) + 0.5) * bin_s  # cell centers, seconds into the row
+    y = np.arange(n_rows)
+    row_labels = [_fmt_mmss(r * row_s) for r in range(n_rows)]
+    cell_start = y[:, None] * row_s + (x[None, :] - 0.5 * bin_s)
+
+    hover = np.vectorize(lambda s, v: (
+        f"{_fmt_mmss(s)} – {_fmt_mmss(s + bin_s)}<br>{colorbar_title}: {v:.0f}"
+        if np.isfinite(v) else ""
+    ), otypes=[object])(cell_start, grid)
+
+    colorbar = dict(title=dict(text=colorbar_title, side="right"), thickness=10, xpad=4)
+
+    fig = go.Figure(go.Heatmap(
+        z=grid, x=x, y=y,
+        colorscale=colorscale,
+        xgap=0.2, ygap=5,
+        colorbar=colorbar,
+        hoverinfo="skip",
+    ))
+
+    # Invisible click targets, one per (non-empty) cell. They also carry the
+    # tooltip: Plotly only sends click events for traces that receive hover.
+    yy, xx = np.meshgrid(y, x, indexing="ij")
+    valid = np.isfinite(grid)
+    fig.add_trace(go.Scatter(
+        x=xx[valid], y=yy[valid],
+        mode="markers",
+        marker=dict(size=14, opacity=0, symbol="square"),
+        text=hover[valid],
+        hovertemplate="%{text}<extra></extra>",
+        showlegend=False,
+    ))
+
+    if window is not None:
+        w0, w1 = window
+        for r in range(n_rows):
+            r0, r1 = r * row_s, (r + 1) * row_s
+            a, b = max(w0, r0), min(w1, r1, total_s)
+            if b <= a:
+                continue
+            fig.add_shape(
+                type="rect",
+                x0=a - r0, x1=b - r0, y0=r - 0.5, y1=r + 0.5,
+                line=dict(color="#ffffff", width=2, dash="dot"),
+                fillcolor="rgba(0,0,0,0)",
+                layer="above",
+            )
+
+    tick_step = row_s / 6 if row_s >= 30 else row_s / 5
+    fig.update_layout(
+        height=int(50 + 20 * n_rows),  # fixed row height; the app scrolls tall maps
+        margin=dict(l=44, r=0, t=20, b=10),
+        plot_bgcolor="rgba(0,0,0,0)",
+        clickmode="event+select",
+        # Not False: Plotly only handles click-to-select on its drag layer.
+        # Axes are fixedrange, so "zoom" cannot actually zoom.
+        dragmode="zoom",
+        hovermode="closest",
+    )
+    fig.update_xaxes(
+        range=[0, cols * bin_s],
+        showticklabels=False,  # drawn as annotations below, flush with the cells
+        showgrid=False, zeroline=False, fixedrange=True,
+    )
+    # Time labels sit directly on the top edge (stay in view when a tall
+    # heatmap scrolls). Annotations instead of tick labels so the gap can be
+    # set exactly (yshift); ticklabelstandoff needs a newer Plotly.
+    for v in np.arange(0, row_s + 1e-9, tick_step):
+        fig.add_annotation(
+            x=v, y=1, xref="x", yref="paper",
+            text=_fmt_mmss(v) if row_s >= 60 else f"{v:g}s",
+            showarrow=False, yanchor="bottom", yshift=1,
+            font=dict(size=11),
+        )
+    fig.update_yaxes(
+        tickvals=y, ticktext=row_labels,
+        # Exact range, reversed (row 0 on top). Autorange would add padding
+        # for the click-target markers and leave a gap under the time labels.
+        range=[n_rows - 0.5, -0.5],
+        showgrid=False, zeroline=False, fixedrange=True,
+        automargin=True,
+        tickfont=dict(family="monospace", size=11),
+    )
+    return fig
+
+
 def peaks_overview_figure(
     events: list[dict],
     corrected_t: np.ndarray | None = None,

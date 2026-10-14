@@ -141,6 +141,26 @@ class Recording:
 
         raise ValueError(f"Unknown downsample method: {method!r}")
 
+    def binned_peak_to_peak(self, bin_s: float, channel: int = 1) -> np.ndarray:
+        """Peak-to-peak per ``bin_s`` from the 1 kHz summary (max−min envelope).
+
+        Approximate vs full-rate NPY bins, but cheap and matches Method B load.
+        """
+        if self.summary is None:
+            raise RuntimeError("1 kHz summary required for heatmap (wait until ready)")
+        fs = self.summary_fs_hz
+        lo = np.asarray(self.summary["min"][:, channel], dtype=np.float64)
+        hi = np.asarray(self.summary["max"][:, channel], dtype=np.float64)
+        bin_n = max(1, int(round(bin_s * fs)))
+        n = len(lo)
+        n_bins = -(-n // bin_n)
+        out = np.empty(n_bins, dtype=np.float64)
+        for i in range(n_bins):
+            a = i * bin_n
+            b = min(n, a + bin_n)
+            out[i] = float(hi[a:b].max()) - float(lo[a:b].min())
+        return out
+
 
 def duration_s(n_samples: int, fs_hz: float = DEFAULT_FS_HZ) -> float:
     return n_samples / fs_hz
