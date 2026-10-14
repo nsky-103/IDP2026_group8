@@ -150,6 +150,44 @@ def sample_range(start_s: float, end_s: float, n_samples: int, fs_hz: float = DE
     return start_i, end_i
 
 
+def binned_peak_to_peak(
+    signal: np.ndarray,
+    bin_s: float,
+    fs_hz: float = DEFAULT_FS_HZ,
+    channel: int = 1,
+    chunk_samples: int = 5_000_000,
+) -> np.ndarray:
+    """
+    Peak-to-peak amplitude (max − min) of one channel in consecutive ``bin_s`` bins.
+
+    Uses every sample (no downsampling), read in chunks so the memmap never has
+    to fit in RAM. The last bin may be shorter than ``bin_s``.
+    Returns one float per bin.
+    """
+    n = signal.shape[0]
+    bin_n = max(1, int(round(bin_s * fs_hz)))
+    n_bins = -(-n // bin_n)  # ceil
+    out = np.empty(n_bins, dtype=np.float64)
+
+    bins_per_chunk = max(1, chunk_samples // bin_n)
+    for first_bin in range(0, n_bins, bins_per_chunk):
+        last_bin = min(n_bins, first_bin + bins_per_chunk)
+        start_i = first_bin * bin_n
+        end_i = min(n, last_bin * bin_n)
+        x = np.asarray(signal[start_i:end_i, channel])
+
+        n_full = (end_i - start_i) // bin_n
+        if n_full:
+            full = x[: n_full * bin_n].reshape(n_full, bin_n)
+            out[first_bin : first_bin + n_full] = (
+                full.max(axis=1).astype(np.int32) - full.min(axis=1).astype(np.int32)
+            )
+        if first_bin + n_full < last_bin:  # trailing partial bin
+            rest = x[n_full * bin_n :]
+            out[first_bin + n_full] = int(rest.max()) - int(rest.min())
+    return out
+
+
 def load_window(
     signal: np.ndarray,
     start_s: float,
