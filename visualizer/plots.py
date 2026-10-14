@@ -7,16 +7,34 @@ the app decides where to show it. Add new charts here as new functions.
 
 from __future__ import annotations
 
+import zlib
+
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 
 SENSOR1 = "Sensor 1 (adc1)"
 SENSOR2 = "Sensor 2 (adc2)"
 SENSOR_COLORS = {SENSOR1: "#1f4fa3", SENSOR2: "#e07020"}
 
-PEAK_CLASS_COLORS = {"high": "#b00020", "medium": "#e65100"}
+# Event colours by label; a label not listed gets a fixed colour from LABEL_PALETTE.
+LABEL_COLORS = {"dyed": "#b00020", "solid_no_dye": "#2e7d32", "water": "#1565c0", "event": "#b00020"}
+LABEL_PALETTE = ["#6a1b9a", "#e65100", "#00838f", "#ad1457", "#558b2f", "#4e342e"]
 REJECTED_COLOR = "#888"
-OTHER_CLASS_COLOR = "#333"
+EVENT_COLUMNS = ["t_peak", "amplitude", "valid", "label", "polarity"]
+
+
+def event_color(label: str, valid: bool) -> str:
+    if not valid:
+        return REJECTED_COLOR
+    return LABEL_COLORS.get(label) or LABEL_PALETTE[zlib.crc32(str(label).encode()) % len(LABEL_PALETTE)]
+
+
+def _shown(events: pd.DataFrame | None, show_rejected: bool = True) -> pd.DataFrame:
+    """Events to draw. ``events`` is ``core.detectors.Detection.events`` (one row per event)."""
+    if events is None or events.empty:
+        return pd.DataFrame(columns=EVENT_COLUMNS)
+    return events if show_rejected else events[events["valid"]]
 
 # Shared Plotly config: trackpad / mouse-wheel zoom, drag to box-zoom
 PLOTLY_ZOOM_CONFIG = {
@@ -40,24 +58,20 @@ def _y_on_trace(t: np.ndarray, y: np.ndarray, t_peak: float) -> float:
     return float(y[i])
 
 
-def peak_marker(event: dict, y_on_signal: float) -> go.Scatter:
-    """One triangle marker for a detected peak (gray when rejected)."""
+def peak_marker(event, y_on_signal: float) -> go.Scatter:
+    """One triangle marker for a detected peak (one events row; gray when rejected)."""
     positive = event["polarity"] == "positive"
-
-    if event["valid"]:
-        color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
-    else:
-        color = REJECTED_COLOR
+    color = event_color(event["label"], event["valid"])
 
     return go.Scatter(
         x=[event["t_peak"]],
         y=[y_on_signal],
         mode="markers",
         marker=dict(size=11, color=color, symbol="triangle-up" if positive else "triangle-down"),
-        name=f"{event['class']} @ {event['t_peak']:.1f}s",
+        name=f"{event['label']} @ {event['t_peak']:.1f}s",
         showlegend=False,
         hovertext=(
-            f"t={event['t_peak']:.2f}s  class={event['class']}  "
+            f"t={event['t_peak']:.2f}s  label={event['label']}  "
             f"amp={event['amplitude']:.1f} (corrected)  valid={event['valid']}"
         ),
         hoverinfo="text",
@@ -69,7 +83,7 @@ def signal_figure(
     channels: list[str],
     start_s: float,
     end_s: float,
-    events: list[dict] | None = None,
+    events: pd.DataFrame | None = None,
     show_rejected: bool = True,
     height: int = 420,
 ) -> go.Figure:
@@ -83,22 +97,17 @@ def signal_figure(
                 line=dict(width=1, color=SENSOR_COLORS[name]),
             ))
 
-    if events and len(t) and len(s2):
+    shown = _shown(events, show_rejected)
+    shown = shown[(shown["t_peak"] >= start_s) & (shown["t_peak"] <= end_s)]
+    if len(shown) and len(t) and len(s2):
         # Prefer Sensor 2 for marker height (detection target); fall back to s1.
         guide = s2 if SENSOR2 in channels and len(s2) else s1
         y_lo = float(np.min(guide)) if len(guide) else 0.0
         y_hi = float(np.max(guide)) if len(guide) else 1.0
-        for event in events:
-            in_window = start_s <= event["t_peak"] <= end_s
-            hidden = not event["valid"] and not show_rejected
-            if not (in_window and not hidden):
-                continue
+        for _, event in shown.iterrows():
             t_peak = float(event["t_peak"])
             y_mark = _y_on_trace(t, guide, t_peak)
-            if event["valid"]:
-                color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
-            else:
-                color = REJECTED_COLOR
+            color = event_color(event["label"], event["valid"])
             # Thin stem at the true detection time (helps when LTTB flattens tips).
             fig.add_trace(go.Scatter(
                 x=[t_peak, t_peak],
@@ -126,7 +135,7 @@ def overview_figure(
     t, s1, s2,
     channels: list[str],
     window: tuple[float, float],
-    events: list[dict] | None = None,
+    events: pd.DataFrame | None = None,
     height: int = 140,
 ) -> go.Figure:
     """Compact full-recording strip with the current zoom window highlighted."""
@@ -139,24 +148,19 @@ def overview_figure(
                 showlegend=False,
             ))
 
-    if events:
-        ys = []
-        for ch, y in [(SENSOR1, s1), (SENSOR2, s2)]:
-            if ch in channels and len(y):
-                ys.append(np.max(y))
+    t_events = _shown(events, show_rejected=False)["t_peak"].to_numpy(dtype=float)
+    if len(t_events):
+        ys = [np.max(y) for ch, y in [(SENSOR1, s1), (SENSOR2, s2)] if ch in channels and len(y)]
         y_top = float(np.max(ys)) if ys else 1.0
-        for event in events:
-            if not event.get("valid"):
-                continue
-            fig.add_trace(go.Scatter(
-                x=[event["t_peak"], event["t_peak"]],
-                y=[y_top * 0.92, y_top],
-                mode="lines",
-                line=dict(width=2, color="#e07020"),
-                showlegend=False,
-                hovertext=f"event @ {event['t_peak']:.1f}s",
-                hoverinfo="text",
-            ))
+        # One trace for all ticks: (x, bottom), (x, top), gap, ...
+        fig.add_trace(go.Scatter(
+            x=np.repeat(t_events, 3),
+            y=np.tile([y_top * 0.92, y_top, np.nan], len(t_events)),
+            mode="lines",
+            line=dict(width=2, color="#e07020"),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
 
     w0, w1 = window
     # Template-style viewing frame: dim outside, bright fill + thick black box
@@ -340,23 +344,25 @@ def time_heatmap_figure(
 
 
 def peaks_overview_figure(
-    events: list[dict],
-    corrected_t: np.ndarray | None = None,
-    corrected: np.ndarray | None = None,
+    events: pd.DataFrame,
+    trace: tuple[np.ndarray, np.ndarray] | None = None,
     threshold: float | None = None,
     show_rejected: bool = True,
 ) -> go.Figure:
-    """One chart with every detected peak (full recording, not just the window)."""
+    """One chart with every detected peak (full recording, not just the window).
+
+    ``trace`` is the (t, y) signal the detector worked on, drawn behind the stems.
+    """
     fig = go.Figure()
 
-    if corrected_t is not None and corrected is not None and len(corrected_t) > 0:
-        n = len(corrected_t)
-        stride = max(1, n // 20_000)
+    if trace is not None and len(trace[0]) > 0:
+        t, y = trace
+        stride = max(1, len(t) // 20_000)
         fig.add_trace(go.Scattergl(
-            x=corrected_t[::stride],
-            y=corrected[::stride],
+            x=t[::stride],
+            y=y[::stride],
             mode="lines",
-            name="corrected Sensor 2",
+            name="detector signal",
             line=dict(width=1, color="#4a90c8"),
         ))
 
@@ -370,16 +376,11 @@ def peaks_overview_figure(
         )
 
     shown = 0
-    for event in events:
-        if not event["valid"] and not show_rejected:
-            continue
+    for _, event in _shown(events, show_rejected).iterrows():
         positive = event["polarity"] == "positive"
         y = event["amplitude"] if positive else -event["amplitude"]
-        if event["valid"]:
-            color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
-        else:
-            color = REJECTED_COLOR
-        label = event["class"] if event["valid"] else "rejected"
+        color = event_color(event["label"], event["valid"])
+        label = event["label"] if event["valid"] else "rejected"
         fig.add_trace(go.Scatter(
             x=[event["t_peak"], event["t_peak"]],
             y=[0.0, y],
@@ -404,7 +405,7 @@ def peaks_overview_figure(
             showlegend=True,
             hovertext=(
                 f"P{shown + 1}  t={event['t_peak']:.2f}s  "
-                f"amp={event['amplitude']:.1f}  class={label}"
+                f"amp={event['amplitude']:.1f}  label={label}"
             ),
             hoverinfo="text",
         ))

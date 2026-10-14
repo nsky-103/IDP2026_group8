@@ -27,11 +27,34 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-1. Enter a CSV/NPY path → **Load / convert**
-2. **Run preprocessing** → inspect Sensor 2 stages
-3. (Optional) open *Peak detection (optional / teammate)* if needed
+1. Enter a CSV/NPY path → **Load**
+2. Pick an **Algorithm**, adjust its parameters → **Detect peaks**
+3. Click an event (or a heatmap cell) to zoom to it
 
-Preprocessing code is shared from `../fluosense_code_only` (`run_preprocess_only`).
+## Code layout
+
+Drawing and algorithms are kept apart:
+
+| Part | Files | Streamlit? |
+|---|---|---|
+| Page layout | `app.py` | yes |
+| One area of the page each | `panels/` (`data_import`, `controls`, `overview`, `detail`, `heatmap`, `events`) | yes |
+| State kept between clicks | `state.py` | yes |
+| Viewing-window math | `viewport.py` | no |
+| Figures | `plots.py`, `lttb.py` | no |
+| Reading the signal | `signal_io.py`, `convert_jobs.py` | no |
+| Detection algorithms | `detectors.py` | no |
+
+Every algorithm returns the same `Detection` (an `events` table with at least `t_peak`, `amplitude`,
+`valid`, `label`), so all panels work with any algorithm.
+
+**Add an algorithm:** write `def my_detector(csv_path, fs_hz, **params) -> Detection` in
+`detectors.py` and add a `Detector(...)` entry with its `Param`s to `DETECTORS`. It appears in
+the *Algorithm* menu with its own controls; no UI code needed. Add a `size_mm` column to fill the
+"estimated size" on the event card.
+
+The *Threshold · fluosense* algorithm needs `fluosense_code_only` next to this repository (it is not
+part of it). *Pieces · core pipeline* uses only this repository.
 
 ## Data policy
 
