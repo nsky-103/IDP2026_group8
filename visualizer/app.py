@@ -32,7 +32,7 @@ remembered between clicks is stored in st.session_state:
     runs          {run name: {"source": csv path, "npy": npy path}}
     active_run    name of the selected run
     detections    {run name: detection result}
-    window        (start_s, end_s) viewing range (set by dragging on the overview)
+    window        (start_s, end_s) viewing range (overview box-drag or range bar)
     selected_event  event ID, e.g. "E3"
 """
 
@@ -151,14 +151,20 @@ def reset_view() -> None:
     """Forget the time range and selected event (e.g. when switching runs)."""
     st.session_state.pop("window", None)
     st.session_state.pop("selected_event", None)
+    st.session_state.pop("overview_range_slider", None)
+    st.session_state.pop("_overview_sel_sig", None)
+    st.session_state.pop("_pending_slider_from_window", None)
+    st.session_state.pop("_overview_slider_live", None)
 
 
 def select_event(event_id: str, t_peak: float, total_s: float) -> None:
     """Button callback: select an event and zoom the time range to it."""
     st.session_state["selected_event"] = event_id
-    st.session_state["window"] = (
-        round(max(0.0, t_peak - EVENT_ZOOM_S), 2),
-        round(min(total_s, t_peak + EVENT_ZOOM_S), 2),
+    _set_window(
+        max(0.0, t_peak - EVENT_ZOOM_S),
+        min(total_s, t_peak + EVENT_ZOOM_S),
+        total_s,
+        bump_overview=True,
     )
 
 
@@ -374,8 +380,20 @@ def _ensure_window(total_s: float) -> tuple[float, float]:
     return st.session_state["window"]
 
 
-def _set_window(start_s: float, end_s: float, total_s: float, *, bump_overview: bool = False) -> None:
-    """Store viewing window; optionally reset overview chart selection state."""
+def _set_window(
+    start_s: float,
+    end_s: float,
+    total_s: float,
+    *,
+    bump_overview: bool = False,
+    sync_slider: bool = True,
+) -> None:
+    """Store viewing window; optionally sync the range bar and refresh the overview chart.
+
+    Streamlit forbids writing a widget key after that widget is instantiated in the
+    same run. Zoom/pan buttons run after the overview slider, so in that case we
+    defer the slider sync to the next run via ``_pending_slider_from_window``.
+    """
     a = max(0.0, min(float(start_s), float(total_s)))
     b = max(0.0, min(float(end_s), float(total_s)))
     if b < a:
@@ -383,6 +401,12 @@ def _set_window(start_s: float, end_s: float, total_s: float, *, bump_overview: 
     if b - a < 0.5:
         b = min(float(total_s), a + 0.5)
     st.session_state["window"] = (float(a), float(b))
+    if sync_slider:
+        if st.session_state.get("_overview_slider_live"):
+            st.session_state["_pending_slider_from_window"] = True
+        else:
+            st.session_state["overview_range_slider"] = (float(a), float(b))
+            st.session_state.pop("_pending_slider_from_window", None)
     if bump_overview:
         st.session_state["_overview_chart_gen"] = (
             st.session_state.get("_overview_chart_gen", 0) + 1
@@ -408,23 +432,45 @@ def _window_from_overview_event(event, total_s: float) -> tuple[float, float] | 
     return float(a), float(b)
 
 
+def _sync_slider_into_window(total_s: float) -> tuple[float, float]:
+    """Reconcile range bar and `window` before the overview slider is created."""
+    start_s, end_s = _ensure_window(total_s)
+
+    # Zoom/pan/etc. updated `window` after the slider was live — push into slider now.
+    if st.session_state.pop("_pending_slider_from_window", False):
+        st.session_state["overview_range_slider"] = (start_s, end_s)
+        return start_s, end_s
+
+    if "overview_range_slider" not in st.session_state:
+        st.session_state["overview_range_slider"] = (start_s, end_s)
+        return start_s, end_s
+
+    sa, sb = st.session_state["overview_range_slider"]
+    if (round(float(sa), 4), round(float(sb), 4)) != (round(start_s, 4), round(end_s, 4)):
+        # User moved the range bar — apply to window (slider not live yet this run).
+        _set_window(float(sa), float(sb), total_s, bump_overview=True, sync_slider=True)
+        return st.session_state["window"]
+    return start_s, end_s
+
+
 def render_full_recording(
     signal,
     run_name: str,
     total_s: float,
     settings: Settings,
 ) -> tuple[float, float]:
-    """Top strip: whole-recording waveform; drag horizontally to set the window."""
-    start_s, end_s = _ensure_window(total_s)
+    """Top strip: whole-recording waveform; box-drag or range bar sets the window."""
+    st.session_state["_overview_slider_live"] = False
+    start_s, end_s = _sync_slider_into_window(total_s)
 
     with st.container(border=True):
         section(
             f"Full recording · {fmt_time(total_s)}",
-            "drag horizontally on the chart to set the viewing range (start → end)",
+            "drag on the chart or move the range bar to set the viewing window",
         )
         st.caption(
             f"Viewing `{fmt_time(start_s)}` – `{fmt_time(end_s)}` · "
-            "black frame = current range"
+            "black frame = current range · chart box-drag or range bar below"
         )
 
         if settings.channels:
@@ -461,8 +507,21 @@ def render_full_recording(
                 prev = st.session_state.get("_overview_sel_sig")
                 if sig != prev:
                     st.session_state["_overview_sel_sig"] = sig
-                    _set_window(picked[0], picked[1], total_s)
+                    _set_window(picked[0], picked[1], total_s, bump_overview=True)
                     st.rerun()
+
+            step = max(float(total_s) / 2000.0, 0.01)
+            st.slider(
+                "Viewing range (s)",
+                min_value=0.0,
+                max_value=float(total_s),
+                step=step,
+                key="overview_range_slider",
+                format="%.2f",
+                help="Drag either handle to adjust the black frame (same as box-select on the chart).",
+            )
+            # After this, writing overview_range_slider in the same run is illegal.
+            st.session_state["_overview_slider_live"] = True
         else:
             st.caption("Select at least one channel to show the overview.")
 
