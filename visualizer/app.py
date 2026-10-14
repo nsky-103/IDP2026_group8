@@ -6,7 +6,7 @@ Run with:  streamlit run visualizer/app.py
 Page layout
 -----------
     header   title · file info
-    left     import · runs · channels · detection settings
+    left     import · runs · channels · detection · heatmap settings
     center   full-recording overview · detail zoom · activity heatmap
     right    selected event · events list
 
@@ -107,6 +107,9 @@ CSS = """
 .sv-card-label { font-size: 0.75rem; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.06em; }
 .sv-card-value { font-size: 1.8rem; font-weight: 700; }
 .sv-card-note { font-size: 0.75rem; opacity: 0.65; }
+/* Heatmap box: tighter than the default bordered container */
+.st-key-heatmap_box { padding: 0.5rem 0.6rem; }
+.st-key-heatmap_box .sv-section { margin-top: 0; }
 </style>
 """
 
@@ -185,6 +188,9 @@ class Settings:
     max_points: int
     downsample_method: str
     detect_clicked: bool
+    heatmap_row_s: float
+    heatmap_cells: int
+    heatmap_metric: str
 
 
 def _register_run(source: Path, npy: Path) -> None:
@@ -325,6 +331,14 @@ def render_left_panel() -> Settings:
         use_container_width=True,
     )
 
+    section("Heatmap")
+    row_label = st.selectbox("Row length", list(HEATMAP_ROW_CHOICES), index=2, key="hm_row")
+    heatmap_cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
+    metric_names = list(HEATMAP_METRICS)
+    if st.session_state.get("active_run") not in get_detections():
+        metric_names.remove("Detected events (count)")
+    heatmap_metric = st.selectbox("Colour by", metric_names, key="hm_metric")
+
     with st.expander("Display settings"):
         fs_hz = st.number_input(
             "Sample rate (Hz)", value=float(signal_io.DEFAULT_FS_HZ), min_value=1.0, step=1000.0
@@ -347,6 +361,9 @@ def render_left_panel() -> Settings:
         max_points=max_points,
         downsample_method=downsample_method,
         detect_clicked=detect_clicked,
+        heatmap_row_s=HEATMAP_ROW_CHOICES[row_label],
+        heatmap_cells=heatmap_cells,
+        heatmap_metric=heatmap_metric,
     )
 
 
@@ -667,36 +684,25 @@ def _event_counts(run_name: str, bin_s: float, n_bins: int) -> np.ndarray:
 
 def render_time_heatmap(run_name: str, total_s: float, settings: Settings) -> None:
     """Bottom: whole recording folded into rows of fixed duration; click a cell to view it."""
-    with st.container(border=True):
-        section("Activity heatmap", "click a cell to move the viewing window there")
+    with st.container(border=True, key="heatmap_box"):
+        section("Activity heatmap")
 
-        c1, c2, c3, c4 = st.columns([1.2, 1, 2.2, 0.9])
-        row_label = c1.selectbox("Row length", list(HEATMAP_ROW_CHOICES), index=2, key="hm_row")
-        row_s = HEATMAP_ROW_CHOICES[row_label]
-        cells = c2.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
-        metric_names = list(HEATMAP_METRICS)
-        if run_name not in get_detections():
-            metric_names.remove("Detected events (count)")
-        metric = c3.selectbox("Colour by", metric_names, key="hm_metric")
-        log_color = c4.checkbox("Log scale", value=True, key="hm_log")
-
-        bin_s = row_s / cells
-        kind, channel = HEATMAP_METRICS[metric]
+        row_s = settings.heatmap_row_s
+        bin_s = row_s / settings.heatmap_cells
+        kind, channel = HEATMAP_METRICS[settings.heatmap_metric]
         npy = get_runs()[run_name]["npy"]
         n_bins = max(1, int(np.ceil(total_s / bin_s - 1e-9)))
         if kind == "events":
             values = _event_counts(run_name, bin_s, n_bins)
-            label = "events"
         else:
             values = _cached_peak_to_peak(
                 npy, Path(npy).stat().st_mtime, bin_s, settings.fs_hz, channel
             )
-            label = "p-p ADC"
 
         window = st.session_state.get("window")
         fig = plots.time_heatmap_figure(
             values, bin_s=bin_s, row_s=row_s, total_s=total_s,
-            window=window, log_color=log_color, colorbar_title=label,
+            window=window,
         )
         gen = st.session_state.get("_heatmap_chart_gen", 0)
         key = f"heatmap_chart_{gen}"
@@ -713,10 +719,6 @@ def render_time_heatmap(run_name: str, total_s: float, settings: Settings) -> No
                 selection_mode="points",
                 config={"displayModeBar": False},
             )
-        st.caption(
-            f"Each row = {row_label}, each cell = {bin_s:g} s · "
-            "dotted frame = current viewing window"
-        )
 
 
 def _on_heatmap_click(key: str, row_s: float, bin_s: float, total_s: float) -> None:

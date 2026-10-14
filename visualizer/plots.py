@@ -200,7 +200,7 @@ def time_heatmap_figure(
     row_s: float,
     total_s: float,
     window: tuple[float, float] | None = None,
-    log_color: bool = True,
+    colorscale: str = "Cividis",
     colorbar_title: str = "",
 ) -> go.Figure:
     """
@@ -218,11 +218,6 @@ def time_heatmap_figure(
     grid[: len(values)] = values
     grid = grid.reshape(n_rows, cols)
 
-    z = grid
-    if log_color:
-        # log10(1 + v): keeps 0 drawable and compresses a few huge bins
-        z = np.log10(1.0 + np.clip(grid, 0.0, None))
-
     x = (np.arange(cols) + 0.5) * bin_s  # cell centers, seconds into the row
     y = np.arange(n_rows)
     row_labels = [_fmt_mmss(r * row_s) for r in range(n_rows)]
@@ -233,22 +228,12 @@ def time_heatmap_figure(
         if np.isfinite(v) else ""
     ), otypes=[object])(cell_start, grid)
 
-    colorbar = dict(title=dict(text=colorbar_title, side="right"), thickness=12)
-    if log_color:
-        finite = grid[np.isfinite(grid)]
-        vmax = float(finite.max()) if finite.size else 1.0
-        ticks = [v for v in (0, 1, 3, 10, 30, 100, 300, 1_000, 3_000, 10_000, 30_000)
-                 if v <= vmax] + [round(vmax)]
-        colorbar.update(
-            tickvals=[np.log10(1.0 + v) for v in ticks],
-            ticktext=[f"{v:g}" for v in ticks],
-            title=dict(text=f"{colorbar_title} (log)", side="right"),
-        )
+    colorbar = dict(title=dict(text=colorbar_title, side="right"), thickness=10, xpad=4)
 
     fig = go.Figure(go.Heatmap(
-        z=z, x=x, y=y,
-        colorscale="Viridis",
-        xgap=1, ygap=3,
+        z=grid, x=x, y=y,
+        colorscale=colorscale,
+        xgap=0.2, ygap=5,
         colorbar=colorbar,
         hoverinfo="skip",
     ))
@@ -283,8 +268,8 @@ def time_heatmap_figure(
 
     tick_step = row_s / 6 if row_s >= 30 else row_s / 5
     fig.update_layout(
-        height=int(60 + 20 * n_rows),  # fixed row height; the app scrolls tall maps
-        margin=dict(l=56, r=16, t=10, b=36),
+        height=int(50 + 20 * n_rows),  # fixed row height; the app scrolls tall maps
+        margin=dict(l=44, r=0, t=20, b=10),
         plot_bgcolor="rgba(0,0,0,0)",
         clickmode="event+select",
         # Not False: Plotly only handles click-to-select on its drag layer.
@@ -294,16 +279,24 @@ def time_heatmap_figure(
     )
     fig.update_xaxes(
         range=[0, cols * bin_s],
-        tickvals=np.arange(0, row_s + 1e-9, tick_step),
-        ticktext=[_fmt_mmss(v) if row_s >= 60 else f"{v:g}s"
-                  for v in np.arange(0, row_s + 1e-9, tick_step)],
-        title_text="time within row",
+        showticklabels=False,  # drawn as annotations below, flush with the cells
         showgrid=False, zeroline=False, fixedrange=True,
     )
+    # Time labels sit directly on the top edge (stay in view when a tall
+    # heatmap scrolls). Annotations instead of tick labels so the gap can be
+    # set exactly (yshift); ticklabelstandoff needs a newer Plotly.
+    for v in np.arange(0, row_s + 1e-9, tick_step):
+        fig.add_annotation(
+            x=v, y=1, xref="x", yref="paper",
+            text=_fmt_mmss(v) if row_s >= 60 else f"{v:g}s",
+            showarrow=False, yanchor="bottom", yshift=1,
+            font=dict(size=11),
+        )
     fig.update_yaxes(
         tickvals=y, ticktext=row_labels,
         autorange="reversed",
         showgrid=False, zeroline=False, fixedrange=True,
+        automargin=True,
         tickfont=dict(family="monospace", size=11),
     )
     return fig
