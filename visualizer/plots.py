@@ -329,7 +329,9 @@ def time_heatmap_figure(
         )
     fig.update_yaxes(
         tickvals=y, ticktext=row_labels,
-        autorange="reversed",
+        # Exact range, reversed (row 0 on top). Autorange would add padding
+        # for the click-target markers and leave a gap under the time labels.
+        range=[n_rows - 0.5, -0.5],
         showgrid=False, zeroline=False, fixedrange=True,
         automargin=True,
         tickfont=dict(family="monospace", size=11),
