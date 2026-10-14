@@ -13,26 +13,18 @@ Page layout
 Files
 -----
     app.py         this file: page layout only (all Streamlit code lives here)
-    processing.py  detection pipeline wrappers (no Streamlit)
+    processing.py  Method B (core) detection wrappers (no Streamlit)
     plots.py       Plotly figures (no Streamlit)
-    signal_io.py   CSV → NPY conversion + loading a time window
-    convert_jobs.py background CSV→NPY worker (keeps the UI responsive)
-    lttb.py        LTTB downsampling for plots
-
-How to add a feature
---------------------
-    1. New input?      add a widget in render_left_panel() and a field in Settings.
-    2. New chart?      add a function in plots.py that returns a go.Figure.
-    3. New calculation? add a function in processing.py.
-    4. Show it:        write a render_xxx() function and call it from main().
-                       The order of calls in main() is the order on the page.
+    signal_io.py   Recording: index + 1 kHz summary + read_window
+    load_jobs.py   background coarse-first load (preview → summarize)
+    lttb.py        LTTB downsampling for detail plots
 
 Streamlit reruns this whole file on every click, so anything that must be
 remembered between clicks is stored in st.session_state:
-    runs          {run name: {"source": csv path, "npy": npy path}}
+    runs          {run name: {"csv": path, "phase": preview|ready}}
     active_run    name of the selected run
     detections    {run name: detection result}
-    window        (start_s, end_s) viewing range (overview box-drag or range bar)
+    window        (start_s, end_s) viewing range
     selected_event  event ID, e.g. "E3"
 """
 
@@ -50,22 +42,21 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-import convert_jobs
+import load_jobs
 import lttb
 import plots
 import processing
 import signal_io
 
 # Reload UI/plot helpers so edits show up without restarting Streamlit.
-# Do NOT reload convert_jobs: that would wipe the in-memory job registry
-# while a background conversion thread is still running.
+# Do NOT reload load_jobs: that would wipe the in-memory job registry
+# while a background load thread is still running.
 importlib.reload(lttb)
 importlib.reload(signal_io)
 importlib.reload(processing)
 importlib.reload(plots)
 
 
-# Prefer local course data if present; otherwise the friend's OneDrive-style path.
 _PROJECT = Path(__file__).resolve().parent.parent
 _DATA_CANDIDATES = [
     _PROJECT
@@ -80,15 +71,19 @@ _DATA_CANDIDATES = [
 ]
 DATA_DIR = next((p for p in _DATA_CANDIDATES if p.exists()), _DATA_CANDIDATES[0])
 DEFAULT_CSV = DATA_DIR / "5. suction_HIGH_CONC_1ml_and_no_resuction.csv"
-DEFAULT_BLANK = (
-    _PROJECT / "idp2023" / "Test signals from previous years" / "just water.csv"
-)
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "marginum_uploads"
 
-DETECTION_ALGORITHMS = ["Method A · Threshold"]  # add new algorithms here
 MAX_EVENTS_LISTED = 25
 DEFAULT_WINDOW_S = 30.0
-EVENT_ZOOM_S = 5.0  # "Show in plot" shows ± this many seconds around the event
+EVENT_ZOOM_S = 5.0
+
+HEATMAP_ROW_CHOICES = {"10 s": 10.0, "30 s": 30.0, "1 min": 60.0, "2 min": 120.0, "5 min": 300.0}
+HEATMAP_MAX_HEIGHT = 480  # px; taller heatmaps scroll
+HEATMAP_METRICS = {
+    "Sensor 2 activity (peak-to-peak)": ("ptp", 1),
+    "Sensor 1 activity (peak-to-peak)": ("ptp", 0),
+    "Detected events (count)": ("events", None),
+}
 
 CSS = """
 <style>
@@ -114,12 +109,7 @@ CSS = """
 """
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def section(title: str, note: str = "") -> None:
-    """Small uppercase section heading with an optional note on the right."""
     st.markdown(
         f'<div class="sv-section"><span>{html.escape(title)}</span>'
         f"<span>{html.escape(note)}</span></div>",
@@ -128,7 +118,6 @@ def section(title: str, note: str = "") -> None:
 
 
 def fmt_time(seconds: float) -> str:
-    """65.2 → '01:05.20'"""
     minutes = int(seconds // 60)
     return f"{minutes:02d}:{seconds - 60 * minutes:05.2f}"
 
@@ -142,7 +131,6 @@ def get_detections() -> dict:
 
 
 def get_events(run_name: str) -> list[tuple[str, dict]]:
-    """Accepted events of a run as (ID, event), numbered in time order: E1, E2, …"""
     detection = get_detections().get(run_name)
     if detection is None:
         return []
@@ -152,7 +140,6 @@ def get_events(run_name: str) -> list[tuple[str, dict]]:
 
 
 def reset_view() -> None:
-    """Forget the time range and selected event (e.g. when switching runs)."""
     st.session_state.pop("window", None)
     st.session_state.pop("selected_event", None)
     st.session_state.pop("overview_range_slider", None)
@@ -162,7 +149,6 @@ def reset_view() -> None:
 
 
 def select_event(event_id: str, t_peak: float, total_s: float) -> None:
-    """Button callback: select an event and zoom the time range to it."""
     st.session_state["selected_event"] = event_id
     _set_window(
         max(0.0, t_peak - EVENT_ZOOM_S),
@@ -172,20 +158,10 @@ def select_event(event_id: str, t_peak: float, total_s: float) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Left panel
-# ---------------------------------------------------------------------------
-
 @dataclass
 class Settings:
-    """Everything the user chose in the left panel."""
-
     channels: list[str]
-    algorithm: str
-    sigma_mult: float
-    channel_ratio: float
     show_rejected: bool
-    blank_path: str
     fs_hz: float
     max_points: int
     downsample_method: str
@@ -195,65 +171,115 @@ class Settings:
     heatmap_metric: str
 
 
-def _register_run(source: Path, npy: Path) -> None:
-    """Add a finished conversion to the runs list and select it."""
-    name = source.stem
-    get_runs()[name] = {"source": str(source), "npy": str(npy)}
-    get_detections().pop(name, None)
-    st.session_state["active_run"] = name
-    reset_view()
+def _register_or_update_run(csv_path: Path, phase: str) -> None:
+    """Add / refresh a run once preview or summary is available."""
+    name = csv_path.stem
+    prev = get_runs().get(name)
+    get_runs()[name] = {"csv": str(csv_path), "phase": phase}
+    if prev is None or prev.get("phase") != phase:
+        if phase == "preview" or prev is None:
+            get_detections().pop(name, None)
+            st.session_state["active_run"] = name
+            reset_view()
+        elif phase == "ready":
+            # Keep window; bump overview so the exact summary redraws.
+            st.session_state["_overview_chart_gen"] = (
+                st.session_state.get("_overview_chart_gen", 0) + 1
+            )
 
 
-def queue_convert(path: Path) -> None:
-    """Kick off background CSV→NPY (or instant npy/cache). Does not block the UI."""
-    convert_jobs.start_convert(Path(path))
+def resolve_data_path(raw: str) -> Path | None:
+    text = (raw or "").strip().strip('"').strip("'")
+    if text.startswith("@"):
+        text = text[1:].strip()
+    if not text:
+        return None
+
+    candidate = Path(text).expanduser()
+    tried: list[Path] = []
+
+    def _ok(p: Path) -> Path | None:
+        tried.append(p)
+        return p if p.is_file() else None
+
+    if candidate.is_absolute():
+        found = _ok(candidate)
+        if found:
+            return found
+    else:
+        for base in (Path.cwd(), _PROJECT, Path(__file__).resolve().parent):
+            found = _ok((base / candidate).resolve())
+            if found:
+                return found
+        found = _ok((_PROJECT / candidate).resolve())
+        if found:
+            return found
+
+    st.session_state["_last_path_tried"] = [str(p) for p in tried]
+    return None
 
 
-def poll_convert_jobs() -> None:
-    """Show progress for background jobs; register runs when they finish."""
-    jobs = convert_jobs.all_jobs()
+def queue_load(path: Path) -> None:
+    load_jobs.start_load(Path(path))
+
+
+def poll_load_jobs() -> None:
+    jobs = load_jobs.all_jobs()
     if not jobs:
         return
 
-    any_running = False
-    just_finished = False
+    any_active = False
+    just_changed = False
     for job in jobs:
         source = Path(job.source)
-        if job.status in ("queued", "running"):
-            any_running = True
+        if job.status in ("queued", "indexing", "preview", "summarizing"):
+            any_active = True
             st.progress(
                 min(max(job.progress, 0.0), 1.0),
                 text=f"{source.name}: {job.message} ({job.progress:.0%})",
             )
-        elif job.status == "done" and job.npy_path:
-            _register_run(source, Path(job.npy_path))
-            convert_jobs.clear_job(source)
+            if job.has_preview or job.status == "preview":
+                phase = "ready" if job.status == "ready" else "preview"
+                # Still summarizing → keep showing preview phase in the run list.
+                if job.status == "summarizing":
+                    phase = "preview"
+                _register_or_update_run(source, phase)
+                just_changed = True
+        elif job.status == "ready":
+            _register_or_update_run(source, "ready")
+            load_jobs.clear_job(source)
             st.toast(f"Loaded {source.name}", icon="✅")
-            just_finished = True
+            just_changed = True
         elif job.status == "error":
             st.error(f"{source.name}: {job.error or job.message}")
-            convert_jobs.clear_job(source)
-            just_finished = True
+            load_jobs.clear_job(source)
+            just_changed = True
 
-    if any_running:
-        st.caption("Conversion runs in the background — you can keep using the UI.")
+    if any_active:
+        st.caption(
+            "Coarse-first load: rough overview first, then 1 kHz summary in the background "
+            "(not a full-rate NPY). You can keep using the UI."
+        )
         time.sleep(0.4)
         st.rerun()
-    elif just_finished:
+    elif just_changed:
         st.rerun()
 
 
 def render_import() -> None:
     section("Import")
-    poll_convert_jobs()
+    poll_load_jobs()
 
     uploads = st.file_uploader(
         "Drop CSV files here",
-        type=["csv", "npy"],
+        type=["csv"],
         accept_multiple_files=True,
-        help="Browser uploads are size-limited. For multi-GB files use a local path below.",
+        help=(
+            "Upload limit is 16 GB (Streamlit config). "
+            "For multi-GB samples (~8 GB), prefer a local path below — "
+            "browser upload is slow and memory-heavy."
+        ),
     )
-    # The uploader keeps its files on every rerun, so remember which ones we already added.
     added = st.session_state.setdefault("added_uploads", set())
     started = False
     for file in uploads or []:
@@ -262,23 +288,45 @@ def render_import() -> None:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         saved_path = UPLOAD_DIR / file.name
         saved_path.write_bytes(file.getbuffer())
-        queue_convert(saved_path)
+        if saved_path.suffix.lower() != ".csv":
+            st.error(f"{file.name}: only CSV is supported (Method B / fast_io).")
+            continue
+        queue_load(saved_path)
         added.add((file.name, file.size))
         started = True
 
     with st.expander("…or load from a local path", expanded=not get_runs()):
         path_text = st.text_input(
-            "Path to CSV or NPY",
+            "Path to CSV",
             value=str(DEFAULT_CSV) if DEFAULT_CSV.exists() else "",
-        ).strip()
+            help=(
+                "Absolute path, or relative to the project folder. "
+                "Cursor `@folder/...` prefixes are OK. "
+                "Load is coarse-first: rough overview, then 1 kHz summary (cached)."
+            ),
+        )
         if st.button("Load", type="primary", use_container_width=True):
-            if path_text and Path(path_text).exists():
-                queue_convert(Path(path_text))
-                started = True
+            resolved = resolve_data_path(path_text)
+            if resolved is not None:
+                if resolved.suffix.lower() != ".csv":
+                    st.error("Only `.csv` files are supported (Method B uses fast_io).")
+                else:
+                    size_gb = resolved.stat().st_size / (1024 ** 3)
+                    st.info(
+                        f"Loading `{resolved.name}` ({size_gb:.2f} GB). "
+                        "Rough overview appears first; 1 kHz summary continues in the background."
+                    )
+                    queue_load(resolved)
+                    started = True
             else:
-                st.error("File not found. Check the path.")
+                tried = st.session_state.pop("_last_path_tried", [])
+                st.error(
+                    "File not found. Paste the full path, or a path relative to "
+                    f"`{_PROJECT}`."
+                )
+                if tried:
+                    st.caption("Tried:\n" + "\n".join(f"- `{p}`" for p in tried[:6]))
 
-    # Load click runs after poll_convert_jobs(); force a rerun so polling starts.
     if started:
         st.rerun()
 
@@ -291,10 +339,12 @@ def render_runs() -> None:
         return
 
     names = list(runs)
-    captions = [
-        f"{len(get_events(name))} events" if name in get_detections() else ""
-        for name in names
-    ]
+    captions = []
+    for name in names:
+        phase = runs[name].get("phase", "?")
+        n_ev = len(get_events(name)) if name in get_detections() else 0
+        tag = "ready" if phase == "ready" else "preview…"
+        captions.append(f"{tag}" + (f" · {n_ev} events" if n_ev else ""))
     st.radio(
         "Runs",
         options=names,
@@ -317,21 +367,24 @@ def render_left_panel() -> Settings:
         channels.append(plots.SENSOR2)
 
     section("Detection")
-    algorithm = st.selectbox("Algorithm", DETECTION_ALGORITHMS)
-    with st.expander("Detection parameters"):
-        sigma_mult = st.slider("Noise σ multiplier", 3.0, 20.0, 5.0, 0.5)
-        channel_ratio = st.slider("Min adc2/adc1 ratio", 0.5, 3.0, 1.3, 0.1)
-        show_rejected = st.checkbox("Show rejected candidates (gray)", value=True)
-        blank_path = st.text_input(
-            "Blank (just water) CSV — optional noise floor",
-            value=str(DEFAULT_BLANK) if DEFAULT_BLANK.exists() else "",
-        )
+    st.caption("Method B · Part A/B (core)")
+    show_rejected = st.checkbox("Show rejected / water (gray)", value=True)
+
+    run_name = st.session_state.get("active_run")
+    ready = bool(
+        run_name
+        and run_name in get_runs()
+        and get_runs()[run_name].get("phase") == "ready"
+    )
     detect_clicked = st.button(
         "Detect peaks",
         type="primary",
-        disabled=not get_runs(),
+        disabled=not ready,
         use_container_width=True,
+        help="Enabled after the 1 kHz summary is ready.",
     )
+    if run_name and run_name in get_runs() and not ready:
+        st.caption("Waiting for 1 kHz summary…")
 
     section("Heatmap")
     row_label = st.selectbox("Row length", list(HEATMAP_ROW_CHOICES), index=2, key="hm_row")
@@ -343,22 +396,21 @@ def render_left_panel() -> Settings:
 
     with st.expander("Display settings"):
         fs_hz = st.number_input(
-            "Sample rate (Hz)", value=float(signal_io.DEFAULT_FS_HZ), min_value=1.0, step=1000.0
+            "Sample rate (Hz)",
+            value=float(signal_io.DEFAULT_FS_HZ),
+            min_value=1.0,
+            step=1000.0,
         )
-        max_points = st.slider("Max plot points", 2_000, 100_000, 20_000, 1_000)
+        max_points = st.slider("Max plot points (detail)", 2_000, 100_000, 20_000, 1_000)
         downsample_method = st.selectbox(
-            "Plot downsample",
+            "Detail downsample",
             ["lttb", "stride"],
             format_func=lambda m: "LTTB (keeps peaks)" if m == "lttb" else "Every-nth sample",
         )
 
     return Settings(
         channels=channels,
-        algorithm=algorithm,
-        sigma_mult=sigma_mult,
-        channel_ratio=channel_ratio,
         show_rejected=show_rejected,
-        blank_path=blank_path,
         fs_hz=fs_hz,
         max_points=max_points,
         downsample_method=downsample_method,
@@ -369,26 +421,18 @@ def render_left_panel() -> Settings:
     )
 
 
-# ---------------------------------------------------------------------------
-# Center column
-# ---------------------------------------------------------------------------
-
-def run_detection(run_name: str, settings: Settings) -> None:
-    """Run peak detection on a run and store the result."""
-    with st.spinner("Running peak detection…"):
+def run_detection(run_name: str, settings: Settings, recording=None) -> None:
+    with st.spinner("Running Method B (Part A/B on 1 kHz summary)…"):
         try:
             get_detections()[run_name] = processing.run_detection(
-                get_runs()[run_name]["source"],
-                settings.fs_hz,
-                settings.blank_path,
-                settings.sigma_mult,
-                settings.channel_ratio,
+                get_runs()[run_name]["csv"],
+                recording=recording,
             )
             st.session_state.pop("selected_event", None)
         except Exception as exc:
             st.error(f"Detection failed: {exc}")
             return
-    st.rerun()  # redraw the page so the left panel shows the new event count
+    st.rerun()
 
 
 def _ensure_window(total_s: float) -> tuple[float, float]:
@@ -406,12 +450,6 @@ def _set_window(
     bump_overview: bool = False,
     sync_slider: bool = True,
 ) -> None:
-    """Store viewing window; optionally sync the range bar and refresh the overview chart.
-
-    Streamlit forbids writing a widget key after that widget is instantiated in the
-    same run. Zoom/pan buttons run after the overview slider, so in that case we
-    defer the slider sync to the next run via ``_pending_slider_from_window``.
-    """
     a = max(0.0, min(float(start_s), float(total_s)))
     b = max(0.0, min(float(end_s), float(total_s)))
     if b < a:
@@ -432,7 +470,6 @@ def _set_window(
 
 
 def _window_from_overview_event(event, total_s: float) -> tuple[float, float] | None:
-    """Parse a horizontal box selection on the overview into (start, end)."""
     try:
         boxes = event.selection.box  # type: ignore[attr-defined]
     except Exception:
@@ -451,10 +488,8 @@ def _window_from_overview_event(event, total_s: float) -> tuple[float, float] | 
 
 
 def _sync_slider_into_window(total_s: float) -> tuple[float, float]:
-    """Reconcile range bar and `window` before the overview slider is created."""
     start_s, end_s = _ensure_window(total_s)
 
-    # Zoom/pan/etc. updated `window` after the slider was live — push into slider now.
     if st.session_state.pop("_pending_slider_from_window", False):
         st.session_state["overview_range_slider"] = (start_s, end_s)
         return start_s, end_s
@@ -465,39 +500,39 @@ def _sync_slider_into_window(total_s: float) -> tuple[float, float]:
 
     sa, sb = st.session_state["overview_range_slider"]
     if (round(float(sa), 4), round(float(sb), 4)) != (round(start_s, 4), round(end_s, 4)):
-        # User moved the range bar — apply to window (slider not live yet this run).
         _set_window(float(sa), float(sb), total_s, bump_overview=True, sync_slider=True)
         return st.session_state["window"]
     return start_s, end_s
 
 
 def render_full_recording(
-    signal,
+    recording: signal_io.Recording,
     run_name: str,
     total_s: float,
     settings: Settings,
 ) -> tuple[float, float]:
-    """Top strip: whole-recording waveform; box-drag or range bar sets the window."""
     st.session_state["_overview_slider_live"] = False
     start_s, end_s = _sync_slider_into_window(total_s)
 
     with st.container(border=True):
-        section(
-            f"Full recording · {fmt_time(total_s)}",
-            "drag on the chart or move the range bar to set the viewing window",
+        approx = recording.phase != "ready"
+        note = (
+            "approximate preview — 1 kHz summary still building"
+            if approx
+            else "1 kHz summary · drag chart or range bar"
         )
+        section(f"Full recording · {fmt_time(total_s)}", note)
         st.caption(
             f"Viewing `{fmt_time(start_s)}` – `{fmt_time(end_s)}` · "
-            "black frame = current range · chart box-drag or range bar below"
+            "black frame = current range"
         )
 
         if settings.channels:
-            t, s1, s2 = signal_io.load_window(
-                signal, 0.0, total_s,
-                fs_hz=settings.fs_hz,
-                max_points=min(4_000, settings.max_points),
-                method="stride",
-            )
+            (
+                t, s1, s2,
+                s1_min, s1_max, s2_min, s2_max,
+                approximate,
+            ) = recording.overview_series(max_points=min(4_000, settings.max_points))
             detection = get_detections().get(run_name)
             fig = plots.overview_figure(
                 t, s1, s2,
@@ -505,6 +540,11 @@ def render_full_recording(
                 window=(start_s, end_s),
                 events=detection["events"] if detection else None,
                 height=180,
+                s1_min=s1_min,
+                s1_max=s1_max,
+                s2_min=s2_min,
+                s2_max=s2_max,
+                approximate=approximate,
             )
             gen = st.session_state.get("_overview_chart_gen", 0)
             event = st.plotly_chart(
@@ -536,9 +576,7 @@ def render_full_recording(
                 step=step,
                 key="overview_range_slider",
                 format="%.2f",
-                help="Drag either handle to adjust the black frame (same as box-select on the chart).",
             )
-            # After this, writing overview_range_slider in the same run is illegal.
             st.session_state["_overview_slider_live"] = True
         else:
             st.caption("Select at least one channel to show the overview.")
@@ -547,11 +585,6 @@ def render_full_recording(
 
 
 def _adjust_window(total_s: float, factor: float) -> None:
-    """Zoom the detail window around its center (factor < 1 zooms in).
-
-    When the window hits an edge, expand/shrink the free side so Zoom out
-    always widens the visible range (trackpad scroll alone is unreliable).
-    """
     start, end = _ensure_window(total_s)
     center = 0.5 * (start + end)
     width = max(0.5, min((end - start) * factor, float(total_s)))
@@ -567,7 +600,6 @@ def _adjust_window(total_s: float, factor: float) -> None:
 
 
 def _nudge_window(total_s: float, direction: float) -> None:
-    """Pan the detail window left (−1) or right (+1) by 50% of its width."""
     start, end = _ensure_window(total_s)
     width = end - start
     shift = direction * 0.5 * width
@@ -583,14 +615,13 @@ def _nudge_window(total_s: float, direction: float) -> None:
 
 
 def render_window(
-    signal,
+    recording: signal_io.Recording,
     run_name: str,
     start_s: float,
     end_s: float,
     settings: Settings,
     total_s: float,
 ) -> None:
-    """Middle: zoomed detail of the selected window."""
     with st.container(border=True):
         event_id = st.session_state.get("selected_event")
         title = f"Event {event_id}" if event_id else "Detail window"
@@ -598,7 +629,6 @@ def render_window(
             f"**{title}** &nbsp; `{fmt_time(start_s)} – {fmt_time(end_s)}`"
         )
 
-        # Explicit zoom / pan — Streamlit trackpad scrollZoom is unreliable
         z1, z2, z3, z4, z5, z6 = st.columns(6)
         if z1.button("➖ Zoom out", use_container_width=True, key="zoom_out"):
             _adjust_window(total_s, factor=2.5)
@@ -623,15 +653,19 @@ def render_window(
             st.warning("Select at least one channel.")
             return
 
-        # Re-read window after possible button updates (same run; buttons call rerun)
         start_s, end_s = st.session_state["window"]
 
-        t, s1, s2 = signal_io.load_window(
-            signal, start_s, end_s,
-            fs_hz=settings.fs_hz,
-            max_points=settings.max_points,
-            method=settings.downsample_method,
-        )
+        try:
+            t, s1, s2 = recording.load_window(
+                start_s, end_s,
+                fs_hz=settings.fs_hz,
+                max_points=settings.max_points,
+                method=settings.downsample_method,
+            )
+        except Exception as exc:
+            st.error(f"Could not read detail window: {exc}")
+            return
+
         detection = get_detections().get(run_name)
         fig = plots.signal_figure(
             t, s1, s2,
@@ -642,7 +676,6 @@ def render_window(
             show_rejected=settings.show_rejected,
             height=420,
         )
-        # Pan with drag is easier than box-zoom for trackpads
         fig.update_layout(dragmode="pan")
         st.plotly_chart(
             fig,
@@ -655,11 +688,10 @@ def render_window(
             },
         )
         st.caption(
-            "Zoom out / Fit all change the black frame on the top graph. "
-            "Drag the chart to pan; use toolbar 🔍 for box-zoom."
+            "Detail uses on-demand CSV reads (read_window), not a full-rate NPY. "
+            "Zoom out / Fit all update the black frame on the overview."
         )
 
-        # Optional: peak stem overview kept out of the main 3-stack
         if detection is not None:
             with st.expander("Peak stems (optional)", expanded=False):
                 proc2 = detection.get("proc2") or {}
@@ -678,22 +710,6 @@ def render_window(
                 )
 
 
-HEATMAP_ROW_CHOICES = {"10 s": 10.0, "30 s": 30.0, "1 min": 60.0, "2 min": 120.0, "5 min": 300.0}
-HEATMAP_MAX_HEIGHT = 480  # px; taller heatmaps scroll
-HEATMAP_METRICS = {
-    "Sensor 2 activity (peak-to-peak)": ("ptp", 1),
-    "Sensor 1 activity (peak-to-peak)": ("ptp", 0),
-    "Detected events (count)": ("events", None),
-}
-
-
-@st.cache_data(show_spinner="Computing heatmap…", max_entries=16)
-def _cached_peak_to_peak(npy_path: str, mtime: float, bin_s: float, fs_hz: float, channel: int):
-    """Full-resolution binned stats; cached per file/settings (mtime busts stale caches)."""
-    signal = signal_io.open_signal(Path(npy_path))
-    return signal_io.binned_peak_to_peak(signal, bin_s, fs_hz=fs_hz, channel=channel)
-
-
 def _event_counts(run_name: str, bin_s: float, n_bins: int) -> np.ndarray:
     counts = np.zeros(n_bins)
     for _, event in get_events(run_name):
@@ -703,22 +719,30 @@ def _event_counts(run_name: str, bin_s: float, n_bins: int) -> np.ndarray:
     return counts
 
 
-def render_time_heatmap(run_name: str, total_s: float, settings: Settings) -> None:
-    """Bottom: whole recording folded into rows of fixed duration; click a cell to view it."""
+def render_time_heatmap(
+    recording: signal_io.Recording,
+    run_name: str,
+    total_s: float,
+    settings: Settings,
+) -> None:
+    """Bottom: whole recording folded into rows; click a cell to view it.
+
+    Peak-to-peak uses the 1 kHz summary envelope (not a full-rate NPY).
+    """
     with st.container(border=True, key="heatmap_box"):
         section("Activity heatmap")
+        if recording.phase != "ready" or recording.summary is None:
+            st.caption("Heatmap needs the 1 kHz summary (still building…).")
+            return
 
         row_s = settings.heatmap_row_s
         bin_s = row_s / settings.heatmap_cells
         kind, channel = HEATMAP_METRICS[settings.heatmap_metric]
-        npy = get_runs()[run_name]["npy"]
         n_bins = max(1, int(np.ceil(total_s / bin_s - 1e-9)))
         if kind == "events":
             values = _event_counts(run_name, bin_s, n_bins)
         else:
-            values = _cached_peak_to_peak(
-                npy, Path(npy).stat().st_mtime, bin_s, settings.fs_hz, channel
-            )
+            values = recording.binned_peak_to_peak(bin_s, channel=int(channel))
 
         window = st.session_state.get("window")
         fig = plots.time_heatmap_figure(
@@ -727,15 +751,12 @@ def render_time_heatmap(run_name: str, total_s: float, settings: Settings) -> No
         )
         gen = st.session_state.get("_heatmap_chart_gen", 0)
         key = f"heatmap_chart_{gen}"
-        # Long recordings → many rows; scroll inside a fixed-height box
         box = {"height": HEATMAP_MAX_HEIGHT} if fig.layout.height > HEATMAP_MAX_HEIGHT else {}
         with st.container(border=False, **box):
             st.plotly_chart(
                 fig,
                 use_container_width=True,
                 key=key,
-                # Callback (not "rerun"): it runs before the overview's range
-                # slider is created, so the window can still be changed.
                 on_select=functools.partial(_on_heatmap_click, key, row_s, bin_s, total_s),
                 selection_mode="points",
                 config={"displayModeBar": False},
@@ -750,7 +771,6 @@ def _on_heatmap_click(key: str, row_s: float, bin_s: float, total_s: float) -> N
         return
     if not points:
         return
-    # x = seconds into the row (cell centre), y = row index
     point = points[0]
     center = float(point["y"]) * row_s + float(point["x"])
 
@@ -758,7 +778,6 @@ def _on_heatmap_click(key: str, row_s: float, bin_s: float, total_s: float) -> N
     width = min(max(w1 - w0, bin_s), total_s)
     start = min(max(0.0, center - 0.5 * width), total_s - width)
     _set_window(start, start + width, total_s, bump_overview=True)
-    # New key clears the stored selection so the same cell can be clicked again
     st.session_state["_heatmap_chart_gen"] = st.session_state.get("_heatmap_chart_gen", 0) + 1
 
 
@@ -797,7 +816,7 @@ def render_events(run_name: str, total_s: float) -> None:
 
     detection = get_detections().get(run_name)
     if detection is None:
-        st.caption("Run **Detect peaks** to list events.")
+        st.caption("Run **Detect peaks** to list events (after 1 kHz summary is ready).")
         return
 
     largest_first = sorted(events, key=lambda item: item[1]["amplitude"], reverse=True)
@@ -820,14 +839,17 @@ def render_events(run_name: str, total_s: float) -> None:
         st.caption(f"+ {hidden} more events")
 
     with st.expander("Detection summary"):
-        st.metric("Detected peaks", detection["n_valid"])
-        st.metric("Clusters", len(detection["clusters"]))
-        st.dataframe(pd.DataFrame(detection["events_table"]), use_container_width=True)
+        st.metric("Detected pieces (valid)", detection["n_valid"])
+        st.metric("All pieces", len(detection.get("events") or []))
+        if detection.get("timings"):
+            st.json(detection["timings"])
+        # Cap rows so a huge table does not freeze the page after Detect.
+        table = detection.get("events_table") or []
+        if len(table) > 500:
+            st.caption(f"Showing 500 / {len(table)} rows (largest amplitudes).")
+            table = sorted(table, key=lambda r: r.get("amplitude", 0), reverse=True)[:500]
+        st.dataframe(pd.DataFrame(table), use_container_width=True)
 
-
-# ---------------------------------------------------------------------------
-# Page
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     st.set_page_config(page_title="Marginum Signal Viewer", layout="wide")
@@ -835,7 +857,7 @@ def main() -> None:
 
     header_left, header_right = st.columns([1, 2])
     header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
-    file_info = header_right.empty()  # filled in once we know the run
+    file_info = header_right.empty()
 
     left, center, right = st.columns([1.15, 3.4, 1.6], gap="medium")
 
@@ -847,24 +869,36 @@ def main() -> None:
         center.info("Drop a Marginum CSV into **Import**, or load one from a local path.")
         return
 
-    signal = signal_io.open_signal(Path(get_runs()[run_name]["npy"]))
-    total_s = signal_io.duration_s(signal.shape[0], settings.fs_hz)
+    csv_path = Path(get_runs()[run_name]["csv"])
+    recording = load_jobs.get_recording(csv_path)
+    if recording is None:
+        center.info("Loading recording…")
+        time.sleep(0.3)
+        st.rerun()
+        return
+
+    # Keep run phase in sync with the live Recording object.
+    get_runs()[run_name]["phase"] = recording.phase
+    total_s = recording.duration_s(settings.fs_hz)
 
     with center:
         if settings.detect_clicked:
-            run_detection(run_name, settings)
-        # Overview (top) → detail zoom (middle).
-        start_s, end_s = render_full_recording(signal, run_name, total_s, settings)
-        render_window(signal, run_name, start_s, end_s, settings, total_s=total_s)
-        render_time_heatmap(run_name, total_s, settings)
+            if recording.phase != "ready":
+                st.warning("Wait until the 1 kHz summary is ready before detecting.")
+            else:
+                run_detection(run_name, settings, recording=recording)
+        start_s, end_s = render_full_recording(recording, run_name, total_s, settings)
+        render_window(recording, run_name, start_s, end_s, settings, total_s=total_s)
+        render_time_heatmap(recording, run_name, total_s, settings)
 
     with right:
         render_selected_event(run_name)
         render_events(run_name, total_s)
 
-    source_name = Path(get_runs()[run_name]["source"]).name
+    phase = recording.phase
+    chip = f"{csv_path.name} · {fmt_time(total_s)} · {phase}"
     file_info.markdown(
-        f'<div class="sv-chip">{html.escape(source_name)} · {fmt_time(total_s)}</div>',
+        f'<div class="sv-chip">{html.escape(chip)}</div>',
         unsafe_allow_html=True,
     )
 

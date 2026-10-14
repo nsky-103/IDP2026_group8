@@ -14,7 +14,14 @@ SENSOR1 = "Sensor 1 (adc1)"
 SENSOR2 = "Sensor 2 (adc2)"
 SENSOR_COLORS = {SENSOR1: "#1f4fa3", SENSOR2: "#e07020"}
 
-PEAK_CLASS_COLORS = {"high": "#b00020", "medium": "#e65100"}
+PEAK_CLASS_COLORS = {
+    "high": "#b00020",
+    "medium": "#e65100",
+    # Method B (core) piece labels
+    "dyed": "#b00020",
+    "solid_no_dye": "#e65100",
+    "water": "#888",
+}
 REJECTED_COLOR = "#888"
 OTHER_CLASS_COLOR = "#333"
 
@@ -86,8 +93,8 @@ def signal_figure(
     if events and len(t) and len(s2):
         # Prefer Sensor 2 for marker height (detection target); fall back to s1.
         guide = s2 if SENSOR2 in channels and len(s2) else s1
-        y_lo = float(np.min(guide)) if len(guide) else 0.0
-        y_hi = float(np.max(guide)) if len(guide) else 1.0
+        # Batch markers into few traces (per class) so long windows stay responsive.
+        by_class: dict[str, list[tuple[float, float]]] = {}
         for event in events:
             in_window = start_s <= event["t_peak"] <= end_s
             hidden = not event["valid"] and not show_rejected
@@ -95,20 +102,20 @@ def signal_figure(
                 continue
             t_peak = float(event["t_peak"])
             y_mark = _y_on_trace(t, guide, t_peak)
-            if event["valid"]:
-                color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
-            else:
-                color = REJECTED_COLOR
-            # Thin stem at the true detection time (helps when LTTB flattens tips).
-            fig.add_trace(go.Scatter(
-                x=[t_peak, t_peak],
-                y=[y_lo, y_hi],
-                mode="lines",
-                line=dict(width=1, color=color, dash="dot"),
+            key = event["class"] if event["valid"] else "rejected"
+            by_class.setdefault(key, []).append((t_peak, y_mark))
+
+        for key, pts in by_class.items():
+            color = PEAK_CLASS_COLORS.get(key, REJECTED_COLOR if key == "rejected" else OTHER_CLASS_COLOR)
+            fig.add_trace(go.Scattergl(
+                x=[p[0] for p in pts],
+                y=[p[1] for p in pts],
+                mode="markers",
+                marker=dict(size=11, color=color, symbol="triangle-up"),
+                name=key,
                 showlegend=False,
-                hoverinfo="skip",
+                hovertemplate=f"{key} @ %{{x:.2f}}s<br>y=%{{y:.1f}}<extra></extra>",
             ))
-            fig.add_trace(peak_marker(event, y_mark))
 
     fig.update_layout(
         height=int(height),
@@ -128,14 +135,50 @@ def overview_figure(
     window: tuple[float, float],
     events: list[dict] | None = None,
     height: int = 140,
+    s1_min=None,
+    s1_max=None,
+    s2_min=None,
+    s2_max=None,
+    approximate: bool = False,
 ) -> go.Figure:
-    """Compact full-recording strip with the current zoom window highlighted."""
+    """Compact full-recording strip with the current zoom window highlighted.
+
+    Optional min/max envelopes (1 kHz summary or rough preview). When
+    ``approximate`` is True the title cue is left to the caller via caption.
+    """
     fig = go.Figure()
-    for name, y in [(SENSOR1, s1), (SENSOR2, s2)]:
-        if name in channels:
+    envelopes = {
+        SENSOR1: (s1_min, s1_max),
+        SENSOR2: (s2_min, s2_max),
+    }
+    means = {SENSOR1: s1, SENSOR2: s2}
+    for name in (SENSOR1, SENSOR2):
+        if name not in channels:
+            continue
+        lo, hi = envelopes[name]
+        color = SENSOR_COLORS[name]
+        if lo is not None and hi is not None and len(lo) and len(hi):
+            # Band: max then min (reversed) so Plotly fills the envelope.
+            alpha = 0.35 if approximate else 0.20
+            # Convert #rrggbb → rgba for fill
+            r = int(color[1:3], 16)
+            g = int(color[3:5], 16)
+            b = int(color[5:7], 16)
+            fig.add_trace(go.Scatter(
+                x=list(t) + list(t[::-1]),
+                y=list(hi) + list(lo[::-1]),
+                fill="toself",
+                fillcolor=f"rgba({r},{g},{b},{alpha})",
+                line=dict(width=0),
+                name=f"{name} range",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+        y = means[name]
+        if y is not None and len(y):
             fig.add_trace(go.Scattergl(
                 x=t, y=y, mode="lines", name=name,
-                line=dict(width=1, color=SENSOR_COLORS[name]),
+                line=dict(width=1, color=color),
                 showlegend=False,
             ))
 
@@ -145,17 +188,21 @@ def overview_figure(
             if ch in channels and len(y):
                 ys.append(np.max(y))
         y_top = float(np.max(ys)) if ys else 1.0
-        for event in events:
-            if not event.get("valid"):
-                continue
-            fig.add_trace(go.Scatter(
-                x=[event["t_peak"], event["t_peak"]],
-                y=[y_top * 0.92, y_top],
-                mode="lines",
-                line=dict(width=2, color="#e07020"),
+        # One scatter for all valid pieces (not one trace per event — that
+        # freezes the browser on long recordings).
+        xs = [float(e["t_peak"]) for e in events if e.get("valid")]
+        if len(xs) > 2_000:
+            step = max(1, len(xs) // 2_000)
+            xs = xs[::step]
+        if xs:
+            fig.add_trace(go.Scattergl(
+                x=xs,
+                y=[y_top] * len(xs),
+                mode="markers",
+                marker=dict(size=6, color="#e07020", symbol="triangle-down"),
+                name="pieces",
                 showlegend=False,
-                hovertext=f"event @ {event['t_peak']:.1f}s",
-                hoverinfo="text",
+                hovertemplate="piece @ %{x:.1f}s<extra></extra>",
             ))
 
     w0, w1 = window
@@ -369,46 +416,44 @@ def peaks_overview_figure(
             annotation_position="bottom right",
         )
 
-    shown = 0
+    # Batch by class — one stem polyline + one marker scatter per class.
+    by_class: dict[str, list[tuple[float, float]]] = {}
     for event in events:
         if not event["valid"] and not show_rejected:
             continue
         positive = event["polarity"] == "positive"
         y = event["amplitude"] if positive else -event["amplitude"]
-        if event["valid"]:
-            color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
-        else:
-            color = REJECTED_COLOR
-        label = event["class"] if event["valid"] else "rejected"
-        fig.add_trace(go.Scatter(
-            x=[event["t_peak"], event["t_peak"]],
-            y=[0.0, y],
-            mode="lines",
+        key = event["class"] if event["valid"] else "rejected"
+        by_class.setdefault(key, []).append((float(event["t_peak"]), float(y)))
+
+    shown = 0
+    for key, pts in by_class.items():
+        if len(pts) > 2_000:
+            step = max(1, len(pts) // 2_000)
+            pts = pts[::step]
+        color = PEAK_CLASS_COLORS.get(key, REJECTED_COLOR if key == "rejected" else OTHER_CLASS_COLOR)
+        # Stem segments as NaN-separated polyline (single trace).
+        xs: list[float | None] = []
+        ys: list[float | None] = []
+        for tx, ty in pts:
+            xs.extend([tx, tx, None])
+            ys.extend([0.0, ty, None])
+        fig.add_trace(go.Scattergl(
+            x=xs, y=ys, mode="lines",
             line=dict(width=1.5, color=color),
             showlegend=False,
             hoverinfo="skip",
         ))
-        fig.add_trace(go.Scatter(
-            x=[event["t_peak"]],
-            y=[y],
-            mode="markers+text",
-            marker=dict(
-                size=11,
-                color=color,
-                symbol="triangle-up" if positive else "triangle-down",
-            ),
-            text=[f"P{shown + 1}"],
-            textposition="top center" if positive else "bottom center",
-            textfont=dict(size=10),
-            name=f"P{shown + 1} · {label}",
+        fig.add_trace(go.Scattergl(
+            x=[p[0] for p in pts],
+            y=[p[1] for p in pts],
+            mode="markers",
+            marker=dict(size=9, color=color, symbol="triangle-up"),
+            name=f"{key} ({len(pts)})",
             showlegend=True,
-            hovertext=(
-                f"P{shown + 1}  t={event['t_peak']:.2f}s  "
-                f"amp={event['amplitude']:.1f}  class={label}"
-            ),
-            hoverinfo="text",
+            hovertemplate=f"{key} @ %{{x:.2f}}s<br>amp=%{{y:.1f}}<extra></extra>",
         ))
-        shown += 1
+        shown += len(pts)
 
     fig.update_layout(
         height=360,
@@ -416,7 +461,7 @@ def peaks_overview_figure(
         xaxis_title="Time (s) — full recording",
         yaxis_title="Peak amplitude (corrected ADC)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10)),
-        title=dict(text=f"All peaks ({shown})", font=dict(size=14)),
+        title=dict(text=f"Pieces ({shown})", font=dict(size=14)),
         hovermode="closest",
         dragmode="zoom",
     )
