@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -23,15 +24,31 @@ import numpy as np
 from core import detection, fast_io, preprocessing
 
 DEFAULT_CACHE = Path(os.environ.get("IDP_CACHE_DIR", Path.home() / ".cache" / "idp2026"))
+_FINGERPRINT_BYTES = 1 << 16
 
 
 # ---- Idea: Unmona (udgithubit/IDP, idp/fast.py: convert writes a small binary once, detect reuses it)
 # Save the reduced data once and read it back on the next open instead of the multi-GB CSV.
 # Stored outside the repository (measurement-derived data must not be committed).
 def _cache_dir(csv_path: Path, cache_root: Path) -> Path:
-    st = csv_path.stat()
-    key = f"{csv_path.resolve()}|{st.st_size}|{st.st_mtime_ns}"
-    return cache_root / f"{csv_path.stem[:40]}_{hashlib.sha1(key.encode()).hexdigest()[:12]}"
+    """Cache folder of a recording, found from its content, not its path (GitHub #18).
+
+    The key is the file size plus 64 KB read at five places (start, quarter, half, three
+    quarters, end). The same recording therefore hits the cache however its path is written
+    (macOS paths pasted from Finder use a different Unicode form) and when it was copied
+    (e.g. uploaded to a temp folder, which also changes the modification time).
+    """
+    size = csv_path.stat().st_size
+    h = hashlib.sha1(str(size).encode())
+    with open(csv_path, "rb") as f:
+        for pos in (0, size // 4, size // 2, 3 * size // 4, max(0, size - _FINGERPRINT_BYTES)):
+            f.seek(pos)
+            h.update(f.read(_FINGERPRINT_BYTES))
+    key = h.hexdigest()[:12]
+    for existing in cache_root.glob(f"*_{key}") if cache_root.is_dir() else []:
+        return existing  # same content saved under another file name
+    name = unicodedata.normalize("NFC", csv_path.stem)[:40]  # only to make the folder readable
+    return cache_root / f"{name}_{key}"
 
 
 def _save(folder: Path, index: fast_io.CsvIndex, summary: dict) -> None:
