@@ -9,12 +9,17 @@ Code shared by the visualizer and scripts. No UI code here.
 | Rough overview (min/max at 2000 places) | `preview(csv)` | 0.7 s |
 | Byte offset ↔ row number index | `build_index(csv)` | 3 s |
 | Exact samples of a zoomed window | `read_window(idx, start_s, end_s)` | 10 s: 0.04 s, 60 s: 0.13 s |
-| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 12 s |
-| Full-rate (N, 2) int16 `.npy` (optional) | `convert_to_npy(csv, idx, out)` | 12 s |
+| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 7.3 s with pyarrow (11 s with pandas); 5.7 s with 8 workers |
+| Full-rate (N, 2) int16 `.npy` (optional) | `convert_to_npy(csv, idx, out)` | 12 s (pandas; faster with pyarrow, not re-measured) |
 
 Measured on a MacBook (8 cores) with the file already read once. Peak memory about 2.2 GB in total
 (0.85 GB main process + about 0.35 GB per worker), well within a 16 GB laptop.
 Run `python tools/benchmark_io.py PATH_TO_CSV` to measure on another computer.
+
+CSV blocks are parsed with pyarrow if it is installed (`pip install pyarrow`, about 1.6x faster, identical
+result), otherwise with pandas. `default_workers()` uses one worker per CPU core, at most 8.
+`summarize(..., partial_callback=f)` calls `f(summary)` about every 0.5 s with the part finished so far
+(in file order; `mean` is NaN where nothing has arrived yet), so a viewer can draw it early.
 
 Suggested order in the app:
 
