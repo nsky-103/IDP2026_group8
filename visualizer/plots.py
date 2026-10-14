@@ -27,10 +27,22 @@ PLOTLY_ZOOM_CONFIG = {
 }
 
 
-def peak_marker(event: dict, s2_mean: float) -> go.Scatter:
+def _y_on_trace(t: np.ndarray, y: np.ndarray, t_peak: float) -> float:
+    """Y value of the plotted curve at ``t_peak`` (nearest sample).
+
+    Detection amplitudes are on the *baseline-corrected* signal, while the
+    detail window shows raw ADC — so markers must sit on the drawn trace,
+    not at mean(raw) ± corrected_amplitude (that looked vertically shifted).
+    """
+    if len(t) == 0 or len(y) == 0:
+        return 0.0
+    i = int(np.argmin(np.abs(t - float(t_peak))))
+    return float(y[i])
+
+
+def peak_marker(event: dict, y_on_signal: float) -> go.Scatter:
     """One triangle marker for a detected peak (gray when rejected)."""
     positive = event["polarity"] == "positive"
-    y = s2_mean + (event["amplitude"] if positive else -event["amplitude"])
 
     if event["valid"]:
         color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
@@ -39,12 +51,16 @@ def peak_marker(event: dict, s2_mean: float) -> go.Scatter:
 
     return go.Scatter(
         x=[event["t_peak"]],
-        y=[y],
+        y=[y_on_signal],
         mode="markers",
-        marker=dict(size=10, color=color, symbol="triangle-up" if positive else "triangle-down"),
+        marker=dict(size=11, color=color, symbol="triangle-up" if positive else "triangle-down"),
         name=f"{event['class']} @ {event['t_peak']:.1f}s",
         showlegend=False,
-        hovertext=f"class={event['class']} amp={event['amplitude']:.1f} valid={event['valid']}",
+        hovertext=(
+            f"t={event['t_peak']:.2f}s  class={event['class']}  "
+            f"amp={event['amplitude']:.1f} (corrected)  valid={event['valid']}"
+        ),
+        hoverinfo="text",
     )
 
 
@@ -67,13 +83,32 @@ def signal_figure(
                 line=dict(width=1, color=SENSOR_COLORS[name]),
             ))
 
-    if events:
-        s2_mean = float(np.mean(s2)) if len(s2) else 0.0
+    if events and len(t) and len(s2):
+        # Prefer Sensor 2 for marker height (detection target); fall back to s1.
+        guide = s2 if SENSOR2 in channels and len(s2) else s1
+        y_lo = float(np.min(guide)) if len(guide) else 0.0
+        y_hi = float(np.max(guide)) if len(guide) else 1.0
         for event in events:
             in_window = start_s <= event["t_peak"] <= end_s
             hidden = not event["valid"] and not show_rejected
-            if in_window and not hidden:
-                fig.add_trace(peak_marker(event, s2_mean))
+            if not (in_window and not hidden):
+                continue
+            t_peak = float(event["t_peak"])
+            y_mark = _y_on_trace(t, guide, t_peak)
+            if event["valid"]:
+                color = PEAK_CLASS_COLORS.get(event["class"], OTHER_CLASS_COLOR)
+            else:
+                color = REJECTED_COLOR
+            # Thin stem at the true detection time (helps when LTTB flattens tips).
+            fig.add_trace(go.Scatter(
+                x=[t_peak, t_peak],
+                y=[y_lo, y_hi],
+                mode="lines",
+                line=dict(width=1, color=color, dash="dot"),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            fig.add_trace(peak_marker(event, y_mark))
 
     fig.update_layout(
         height=int(height),

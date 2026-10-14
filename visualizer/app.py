@@ -153,6 +153,8 @@ def reset_view() -> None:
     st.session_state.pop("selected_event", None)
     st.session_state.pop("overview_range_slider", None)
     st.session_state.pop("_overview_sel_sig", None)
+    st.session_state.pop("_pending_slider_from_window", None)
+    st.session_state.pop("_overview_slider_live", None)
 
 
 def select_event(event_id: str, t_peak: float, total_s: float) -> None:
@@ -386,7 +388,12 @@ def _set_window(
     bump_overview: bool = False,
     sync_slider: bool = True,
 ) -> None:
-    """Store viewing window; optionally sync the range bar and refresh the overview chart."""
+    """Store viewing window; optionally sync the range bar and refresh the overview chart.
+
+    Streamlit forbids writing a widget key after that widget is instantiated in the
+    same run. Zoom/pan buttons run after the overview slider, so in that case we
+    defer the slider sync to the next run via ``_pending_slider_from_window``.
+    """
     a = max(0.0, min(float(start_s), float(total_s)))
     b = max(0.0, min(float(end_s), float(total_s)))
     if b < a:
@@ -395,7 +402,11 @@ def _set_window(
         b = min(float(total_s), a + 0.5)
     st.session_state["window"] = (float(a), float(b))
     if sync_slider:
-        st.session_state["overview_range_slider"] = (float(a), float(b))
+        if st.session_state.get("_overview_slider_live"):
+            st.session_state["_pending_slider_from_window"] = True
+        else:
+            st.session_state["overview_range_slider"] = (float(a), float(b))
+            st.session_state.pop("_pending_slider_from_window", None)
     if bump_overview:
         st.session_state["_overview_chart_gen"] = (
             st.session_state.get("_overview_chart_gen", 0) + 1
@@ -422,14 +433,21 @@ def _window_from_overview_event(event, total_s: float) -> tuple[float, float] | 
 
 
 def _sync_slider_into_window(total_s: float) -> tuple[float, float]:
-    """If the range bar moved, apply it to `window` before drawing the overview."""
+    """Reconcile range bar and `window` before the overview slider is created."""
     start_s, end_s = _ensure_window(total_s)
+
+    # Zoom/pan/etc. updated `window` after the slider was live — push into slider now.
+    if st.session_state.pop("_pending_slider_from_window", False):
+        st.session_state["overview_range_slider"] = (start_s, end_s)
+        return start_s, end_s
+
     if "overview_range_slider" not in st.session_state:
         st.session_state["overview_range_slider"] = (start_s, end_s)
         return start_s, end_s
 
     sa, sb = st.session_state["overview_range_slider"]
     if (round(float(sa), 4), round(float(sb), 4)) != (round(start_s, 4), round(end_s, 4)):
+        # User moved the range bar — apply to window (slider not live yet this run).
         _set_window(float(sa), float(sb), total_s, bump_overview=True, sync_slider=True)
         return st.session_state["window"]
     return start_s, end_s
@@ -442,6 +460,7 @@ def render_full_recording(
     settings: Settings,
 ) -> tuple[float, float]:
     """Top strip: whole-recording waveform; box-drag or range bar sets the window."""
+    st.session_state["_overview_slider_live"] = False
     start_s, end_s = _sync_slider_into_window(total_s)
 
     with st.container(border=True):
@@ -501,6 +520,8 @@ def render_full_recording(
                 format="%.2f",
                 help="Drag either handle to adjust the black frame (same as box-select on the chart).",
             )
+            # After this, writing overview_range_slider in the same run is illegal.
+            st.session_state["_overview_slider_live"] = True
         else:
             st.caption("Select at least one channel to show the overview.")
 
