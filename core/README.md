@@ -65,6 +65,9 @@ so changed parameters take effect.
 - Peaks: prominence > 10 x sigma on the cleaned signal.
 - Pieces: peaks less than 1 s apart are one piece (one aspirated tissue piece).
 - Label from the largest peak of the piece: higher than the no-dye level (68.9 counts, top 0.1% of
-  water-only peaks) -> `dyed`; otherwise an adc1 peak within ±20 ms -> `solid_no_dye`; otherwise `water`.
+  water-only peaks) -> `dyed`; otherwise confirmed by adc1 -> `solid_no_dye`; otherwise `water`.
+- Two-channel check: an adc1 peak within ±20 ms of the top adc2 peak shifted by the recording's channel
+  lag (median over the dyed pieces), at least 5% as high. `peaks["two_channel"]` gives the lag and the
+  chance rate (adc1 shifted by 2–20 s). Chance rate above 20%: the check is not used, dim pieces `undecided`.
 - If adc1 hardly responds (adc1 / adc2 at the largest peaks below 0.1, as in the 2023 test signals),
   adc1 is not used and dim pieces are `undecided`.
