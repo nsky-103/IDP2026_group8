@@ -36,7 +36,7 @@ opened before, the row index and the 1 kHz data are loaded from there (0.1 s). O
 1. `fast_io.build_index()` splits the file into 1024 blocks and counts the lines of each block in
    parallel, so any row can be found by its byte position (3.6 s).
 2. `fast_io.summarize()` reads the blocks in parallel and takes the mean, min and max of every 50 samples
-   (50 kHz -> 1 kHz, 7.3 s with pyarrow, 11 s with pandas). The mean is the input for the analysis: the signal has no content above
+   (50 kHz -> 1 kHz, 4.2 s with numba, 7.9 s with pyarrow, 11 s with pandas). The mean is the input for the analysis: the signal has no content above
    about 500 Hz, so 1 ms means keep peak height (99.3–99.9%) and area. Min and max are for drawing the
    whole recording without hiding narrow peaks.
 3. The index and the summary are saved to the cache for the next open.
@@ -84,10 +84,10 @@ Output: a table with one row per piece, and the peak times for plotting.
 
 | Step | First open | Next open |
 |---|---|---|
-| 1. CSV -> 1 kHz | about 11 s (pyarrow) | 0.1 s (cache) |
+| 1. CSV -> 1 kHz | about 7.5 s (numba; index 3.3 s + summary 4.2 s) | 0.1 s (cache) |
 | 2. Part A | 1.8 s | 1.8 s |
 | 3. Part B | 1.8 s | 1.8 s |
-| Total | about 15 s | about 3.7 s |
+| Total | about 11 s | about 3.7 s |
 
 ## Contributions
 

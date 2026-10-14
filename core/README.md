@@ -9,12 +9,16 @@ Code shared by the visualizer and scripts. No UI code here.
 | Rough overview (min/max at 2000 places) | `preview(csv)` | 0.7 s |
 | Byte offset ↔ row number index | `build_index(csv)` | 3 s |
 | Exact samples of a zoomed window | `read_window(idx, start_s, end_s)` | 10 s: 0.04 s, 60 s: 0.13 s |
-| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 7.3 s with pyarrow (11 s with pandas); 5.7 s with 8 workers |
+| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 4.2 s with numba (7.9 s pyarrow, 11 s pandas); 3.6 s with 8 workers |
 | Full-rate (N, 2) int16 `.npy` (optional) | `convert_to_npy(csv, idx, out)` | 12 s (pandas; faster with pyarrow, not re-measured) |
 
 Measured on a MacBook (8 cores) with the file already read once. Peak memory about 2.2 GB in total
 (0.85 GB main process + about 0.35 GB per worker), well within a 16 GB laptop.
 Run `python tools/benchmark_io.py PATH_TO_CSV` to measure on another computer.
+
+With numba installed (`pip install numba`), `summarize` parses and reduces each block of files over 500 MB in one
+compiled pass (about 2.8x faster per block than pyarrow, identical result; compiled once on the first run and
+cached in `core/__pycache__`). Smaller files skip it: importing numba costs 0.3–0.5 s per worker.
 
 CSV blocks are parsed with pyarrow if it is installed (`pip install pyarrow`, about 1.6x faster, identical
 result), otherwise with pandas. `default_workers()` uses one worker per CPU core, at most 8.
