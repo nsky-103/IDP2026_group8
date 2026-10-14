@@ -95,8 +95,16 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
     from core import detection, preprocessing
 
     t0 = time.perf_counter()
-    clean = preprocessing.preprocess(recording.summary["mean"], fs=recording.summary_fs_hz)
-    t1 = time.perf_counter()
+    # Prefer Part A precomputed during load (#17); otherwise run it now.
+    if recording.clean is not None:
+        clean = recording.clean
+        t1 = time.perf_counter()
+        part_a_tag = "Part A: clean (memory)"
+    else:
+        clean = preprocessing.preprocess(recording.summary["mean"], fs=recording.summary_fs_hz)
+        recording.clean = clean
+        t1 = time.perf_counter()
+        part_a_tag = "Part A: clean"
     pieces, _ = detection.find_pieces(clean, k=k_sigma, gap_s=gap_s, no_dye_level=no_dye_level)
     t2 = time.perf_counter()
 
@@ -114,7 +122,7 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         threshold=k_sigma * clean["sigma_adc2"],
         summary={"Detected pieces (valid)": int(events["valid"].sum()), "All pieces": len(events),
                  "Noise sigma (adc2)": round(clean["sigma_adc2"], 2)},
-        timings={"Part A: clean": round(t1 - t0, 3), "Part B: pieces": round(t2 - t1, 3)},
+        timings={part_a_tag: round(t1 - t0, 3), "Part B: pieces": round(t2 - t1, 3)},
     )
 
 

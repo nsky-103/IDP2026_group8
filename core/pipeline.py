@@ -65,6 +65,44 @@ def _load(folder: Path, csv_path: Path) -> tuple[fast_io.CsvIndex, dict] | None:
         return None
     index = fast_io.CsvIndex(csv_path, i["byte_starts"], i["byte_ends"], i["row_starts"], int(i["n_rows"]))
     return index, {k: (float(s[k]) if k == "fs_hz" else s[k]) for k in s.files}
+
+
+def _part_a_key(params: dict | None = None) -> str:
+    """Filename suffix from Part A parameters so a param change misses the cache."""
+    p = params or preprocessing.PARAMS
+    raw = "|".join(f"{k}={p[k]}" for k in sorted(p))
+    return hashlib.sha1(raw.encode()).hexdigest()[:10]
+
+
+def save_part_a(folder: Path, clean: dict, params: dict | None = None) -> None:
+    """Persist Part A output next to the summary (GitHub #17)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"part_a_{_part_a_key(params)}.npz"
+    np.savez(
+        path,
+        adc1=clean["adc1"], adc2=clean["adc2"],
+        sigma_adc1=clean["sigma_adc1"], sigma_adc2=clean["sigma_adc2"],
+        fs=clean["fs"],
+        adc1_response=clean.get("adc1_response", np.nan),
+        adc1_usable=bool(clean.get("adc1_usable", False)),
+    )
+
+
+def load_part_a(folder: Path, params: dict | None = None) -> dict | None:
+    path = folder / f"part_a_{_part_a_key(params)}.npz"
+    try:
+        z = np.load(path)
+    except (OSError, ValueError):
+        return None
+    return {
+        "fs": float(z["fs"]),
+        "adc1": z["adc1"],
+        "adc2": z["adc2"],
+        "sigma_adc1": float(z["sigma_adc1"]),
+        "sigma_adc2": float(z["sigma_adc2"]),
+        "adc1_response": float(z["adc1_response"]) if "adc1_response" in z.files else float("nan"),
+        "adc1_usable": bool(z["adc1_usable"]) if "adc1_usable" in z.files else False,
+    }
 # ---- end of Unmona's idea ---------------------------------------------------------------------
 
 
@@ -90,8 +128,15 @@ def analyse(csv_path: str | Path, cache_root: Path | None = DEFAULT_CACHE, worke
     timings["read (cache)" if from_cache else "read CSV -> 1 kHz"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    clean = preprocessing.preprocess(summary["mean"], fs=summary["fs_hz"])
-    timings["Part A: clean"] = time.perf_counter() - t
+    folder = _cache_dir(Path(csv_path), cache_root) if cache_root else None
+    clean = load_part_a(folder) if folder else None
+    if clean is None:
+        clean = preprocessing.preprocess(summary["mean"], fs=summary["fs_hz"])
+        if folder:
+            save_part_a(folder, clean)
+        timings["Part A: clean"] = time.perf_counter() - t
+    else:
+        timings["Part A: clean (cache)"] = time.perf_counter() - t
 
     t = time.perf_counter()
     pieces, peaks = detection.find_pieces(clean)

@@ -117,6 +117,7 @@ def signal_figure(
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         hovermode="x unified",
         dragmode="zoom",
+        xaxis=dict(range=[float(start_s), float(end_s)]),
     )
     return fig
 
@@ -176,9 +177,9 @@ def overview_figure(
         ))
 
     w0, w1 = window
-    # Template-style viewing frame: dim outside, bright fill + thick black box
-    t_min = float(np.min(t)) if len(t) else 0.0
-    t_max = float(np.max(t)) if len(t) else 1.0
+    # Fixed [0, end] so start/end annotations do not pull autorange below 0 (#24).
+    t_min = 0.0
+    t_max = float(np.max(t)) if len(t) else max(float(w1), 1.0)
     if w0 > t_min:
         fig.add_vrect(
             x0=t_min, x1=w0,
@@ -236,7 +237,7 @@ def overview_figure(
         newselection=dict(line=dict(color="#000000", width=3, dash="solid")),
         activeselection=dict(fillcolor="rgba(0,0,0,0.12)", opacity=1.0),
     )
-    fig.update_xaxes(showgrid=False, fixedrange=True)
+    fig.update_xaxes(showgrid=False, fixedrange=True, range=[t_min, t_max])
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True)
     return fig
 

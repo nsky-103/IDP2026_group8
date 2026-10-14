@@ -35,7 +35,7 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings: S
             s1_min=s1_min, s1_max=s1_max, s2_min=s2_min, s2_max=s2_max, approximate=approximate,
         )
         chart = st.plotly_chart(
-            fig, use_container_width=True,
+            fig, width="stretch",
             key=state.chart_key("overview_chart", "_overview_chart_gen"),
             on_select="rerun", selection_mode="box",
             config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
