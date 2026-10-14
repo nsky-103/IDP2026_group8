@@ -14,7 +14,14 @@ SENSOR1 = "Sensor 1 (adc1)"
 SENSOR2 = "Sensor 2 (adc2)"
 SENSOR_COLORS = {SENSOR1: "#1f4fa3", SENSOR2: "#e07020"}
 
-PEAK_CLASS_COLORS = {"high": "#b00020", "medium": "#e65100"}
+PEAK_CLASS_COLORS = {
+    "high": "#b00020",
+    "medium": "#e65100",
+    # Method B (core) piece labels
+    "dyed": "#b00020",
+    "solid_no_dye": "#e65100",
+    "water": "#888",
+}
 REJECTED_COLOR = "#888"
 OTHER_CLASS_COLOR = "#333"
 

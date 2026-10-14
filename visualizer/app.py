@@ -84,7 +84,10 @@ DEFAULT_BLANK = (
 )
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "marginum_uploads"
 
-DETECTION_ALGORITHMS = ["Method A · Threshold"]  # add new algorithms here
+DETECTION_ALGORITHMS = [
+    "Method A · Threshold",
+    "Method B · Part A/B (core)",
+]
 MAX_EVENTS_LISTED = 25
 DEFAULT_WINDOW_S = 30.0
 EVENT_ZOOM_S = 5.0  # "Show in plot" shows ± this many seconds around the event
@@ -425,6 +428,7 @@ def run_detection(run_name: str, settings: Settings) -> None:
                 settings.blank_path,
                 settings.sigma_mult,
                 settings.channel_ratio,
+                algorithm=settings.algorithm,
             )
             st.session_state.pop("selected_event", None)
         except Exception as exc:
