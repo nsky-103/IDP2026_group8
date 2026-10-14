@@ -1,0 +1,4 @@
+[server]
+# Streamlit default is 200 MB. Group samples can be ~7.59 GB; allow up to 16 GB.
+# Prefer local-path load for multi-GB files (browser upload is slow / RAM-heavy).
+maxUploadSize = 16384

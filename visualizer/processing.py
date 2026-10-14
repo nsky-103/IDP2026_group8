@@ -43,20 +43,65 @@ def _load_fluosense():
 
     for module in (config, detect, preprocess, io_utils, pipeline):
         importlib.reload(module)
-    return config, io_utils, pipeline, preprocess
+    return config, io_utils, pipeline, preprocess, detect
 
 
 def run_preprocess(source_path: str | Path, fs_hz: float) -> dict:
     """Downsample → denoise → baseline-correct both channels (no peak detection)."""
-    config, io_utils, _, preprocess = _load_fluosense()
+    config, io_utils, _, preprocess, _detect = _load_fluosense()
     config.FS_HZ = float(fs_hz)
 
-    df = io_utils.load_raw(str(source_path), fs_hz)
+    path = Path(source_path)
+    if path.suffix.lower() == ".npy":
+        t, adc1, adc2, fs_eff = io_utils.load_downsampled(
+            str(path), fs_hz, config.TARGET_RATE_HZ
+        )
+        return {
+            "proc1": preprocess.preprocess_channel(
+                t, adc1, fs_eff, already_downsampled=True
+            ),
+            "proc2": preprocess.preprocess_channel(
+                t, adc2, fs_eff, already_downsampled=True
+            ),
+        }
+
+    df = io_utils.load_raw(str(path), fs_hz)
     t = df["t"].values
     return {
         "proc1": preprocess.preprocess_channel(t, df["adc1"].values, fs_hz),
         "proc2": preprocess.preprocess_channel(t, df["adc2"].values, fs_hz),
     }
+
+
+def _blank_noise(blank_path: Path, fs_hz: float, config, io_utils, pipeline, preprocess, detect):
+    """Noise floor from a blank recording (CSV or NPY)."""
+    suffix = blank_path.suffix.lower()
+    if suffix == ".csv":
+        return pipeline.run_pipeline(str(blank_path), fs_hz=fs_hz)["noise"]
+    if suffix == ".npy":
+        t, _adc1, adc2, fs_eff = io_utils.load_downsampled(
+            str(blank_path), fs_hz, config.TARGET_RATE_HZ
+        )
+        blank_proc2 = preprocess.preprocess_channel(
+            t, adc2, fs_eff, already_downsampled=True
+        )
+        return detect.noise_stats(blank_proc2["corrected"])
+    raise ValueError(f"Blank must be .csv or .npy, got {blank_path.suffix}")
+
+
+def _detect_from_npy(npy_path: Path, fs_hz: float, blank_noise, config, io_utils, pipeline):
+    """Peak detection on a memmap .npy without re-reading a multi-GB CSV."""
+    _t, adc1, adc2, fs_eff = io_utils.load_downsampled(
+        str(npy_path), fs_hz, config.TARGET_RATE_HZ
+    )
+    return pipeline.run_from_arrays(
+        adc1,
+        adc2,
+        fs_hz=fs_eff,
+        blank_noise=blank_noise,
+        target_hz=config.TARGET_RATE_HZ,
+        already_downsampled=True,
+    )
 
 
 def run_detection(
@@ -68,13 +113,18 @@ def run_detection(
 ) -> dict:
     """Run the full pipeline (preprocess → detect → cluster) on one recording.
 
-    ``blank_path`` (optional) is a just-water recording; its noise sets the
+    Accepts ``.csv`` or ``.npy``. NPY uses strided memmap load so ~GB files
+    do not need a full float copy of the raw recording.
+
+    ``blank_path`` (optional) is a just-water CSV/NPY; its noise sets the
     detection threshold. Without it, the recording's own noise is used.
     """
-    if Path(source_path).suffix.lower() != ".csv":
-        raise ValueError("Detection needs the original CSV file (the pipeline cannot read .npy).")
+    source = Path(source_path)
+    suffix = source.suffix.lower()
+    if suffix not in {".csv", ".npy"}:
+        raise ValueError(f"Detection needs a .csv or .npy file, got {source.suffix}")
 
-    config, _, pipeline, _ = _load_fluosense()
+    config, io_utils, pipeline, preprocess, detect = _load_fluosense()
     config.FS_HZ = float(fs_hz)
     config.NOISE_SIGMA_MULT = float(sigma_mult)
     config.MIN_CHANNEL_RATIO = float(channel_ratio)
@@ -82,11 +132,21 @@ def run_detection(
     blank_noise = None
     blank_path = blank_path.strip()
     if blank_path:
-        if not Path(blank_path).exists():
+        blank = Path(blank_path)
+        if not blank.exists():
             raise FileNotFoundError(f"Blank file not found: {blank_path}")
-        blank_noise = pipeline.run_pipeline(blank_path, fs_hz=fs_hz)["noise"]
+        blank_noise = _blank_noise(
+            blank, fs_hz, config, io_utils, pipeline, preprocess, detect
+        )
 
-    result = pipeline.run_pipeline(str(source_path), fs_hz=fs_hz, blank_noise=blank_noise)
+    if suffix == ".npy":
+        result = _detect_from_npy(
+            source, fs_hz, blank_noise, config, io_utils, pipeline
+        )
+    else:
+        result = pipeline.run_pipeline(
+            str(source), fs_hz=fs_hz, blank_noise=blank_noise
+        )
     return _add_summary(result)
 
 

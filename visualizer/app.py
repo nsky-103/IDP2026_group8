@@ -197,6 +197,43 @@ def _register_run(source: Path, npy: Path) -> None:
     reset_view()
 
 
+def resolve_data_path(raw: str) -> Path | None:
+    """Resolve a user-typed path to an existing CSV/NPY file.
+
+    Accepts absolute paths, paths relative to the project root, and Cursor-style
+    ``@idp2023/...`` references. Returns ``None`` if nothing matches.
+    """
+    text = (raw or "").strip().strip('"').strip("'")
+    if text.startswith("@"):
+        text = text[1:].strip()
+    if not text:
+        return None
+
+    candidate = Path(text).expanduser()
+    tried: list[Path] = []
+
+    def _ok(p: Path) -> Path | None:
+        tried.append(p)
+        return p if p.is_file() else None
+
+    if candidate.is_absolute():
+        found = _ok(candidate)
+        if found:
+            return found
+    else:
+        for base in (Path.cwd(), _PROJECT, Path(__file__).resolve().parent):
+            found = _ok((base / candidate).resolve())
+            if found:
+                return found
+        # Common paste: "idp2023/Test signals/.../file.csv"
+        found = _ok((_PROJECT / candidate).resolve())
+        if found:
+            return found
+
+    st.session_state["_last_path_tried"] = [str(p) for p in tried]
+    return None
+
+
 def queue_convert(path: Path) -> None:
     """Kick off background CSV→NPY (or instant npy/cache). Does not block the UI."""
     convert_jobs.start_convert(Path(path))
@@ -241,10 +278,14 @@ def render_import() -> None:
     poll_convert_jobs()
 
     uploads = st.file_uploader(
-        "Drop CSV files here",
+        "Drop CSV / NPY files here",
         type=["csv", "npy"],
         accept_multiple_files=True,
-        help="Browser uploads are size-limited. For multi-GB files use a local path below.",
+        help=(
+            "Upload limit is 16 GB (Streamlit config). "
+            "For multi-GB samples (~8 GB), prefer a local path below — "
+            "browser upload is slow and memory-heavy."
+        ),
     )
     # The uploader keeps its files on every rerun, so remember which ones we already added.
     added = st.session_state.setdefault("added_uploads", set())
@@ -263,13 +304,32 @@ def render_import() -> None:
         path_text = st.text_input(
             "Path to CSV or NPY",
             value=str(DEFAULT_CSV) if DEFAULT_CSV.exists() else "",
-        ).strip()
+            help=(
+                "Absolute path, or relative to the Industrial Project folder. "
+                "Cursor `@folder/...` prefixes are OK. "
+                "Multi-GB CSVs need a one-time CSV→NPY convert (can take several minutes)."
+            ),
+        )
         if st.button("Load", type="primary", use_container_width=True):
-            if path_text and Path(path_text).exists():
-                queue_convert(Path(path_text))
+            resolved = resolve_data_path(path_text)
+            if resolved is not None:
+                size_gb = resolved.stat().st_size / (1024 ** 3)
+                st.info(
+                    f"Loading `{resolved.name}` ({size_gb:.2f} GB). "
+                    "First convert of a multi-GB CSV can take several minutes — "
+                    "watch the progress bar (counting rows, then writing NPY)."
+                )
+                queue_convert(resolved)
                 started = True
             else:
-                st.error("File not found. Check the path.")
+                tried = st.session_state.pop("_last_path_tried", [])
+                st.error(
+                    "File not found. Paste the full path, or a path relative to "
+                    f"`{_PROJECT}` (without needing quotes). "
+                    "Do not leave Cursor’s `@` if the file still fails after refresh."
+                )
+                if tried:
+                    st.caption("Tried:\n" + "\n".join(f"- `{p}`" for p in tried[:6]))
 
     # Load click runs after poll_convert_jobs(); force a rerun so polling starts.
     if started:
