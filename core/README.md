@@ -34,3 +34,30 @@ Notes:
   must be importable and scripts need `if __name__ == "__main__":`.
 - The sampling rate is assumed to be 50 kHz (`DEFAULT_FS_HZ`).
 - Output files must not go into the repository (see the data policy in `visualizer/README.md`).
+
+## pipeline.py — whole analysis of one recording
+
+```python
+from core import pipeline
+r = pipeline.analyse("recording.csv")
+r["pieces"]    # one row per piece: start_s, end_s, duration_s, n_peaks, max_height, area, confirmed, label
+r["peaks"]     # peak times (s) of adc2 and adc1, for plotting
+r["clean"]     # cleaned 1 kHz adc1 / adc2 and sigma per channel
+```
+
+| Step | Module | Origin |
+|---|---|---|
+| CSV -> row index + 1 kHz summary | `fast_io` | Sora |
+| Part A: median + Savitzky-Golay + ALS, sigma (quietest 10% of 200 ms blocks) | `preprocessing` | Unmona's `idp/method.py`, unchanged |
+| Part B: peaks, pieces, labels, features | `detection` | Sora's rules, unchanged |
+
+The cache (row index + 1 kHz summary, about 270 MB for 4.7 h) goes to `~/.cache/idp2026`
+(change with the environment variable `IDP_CACHE_DIR`). Cleaning and detection always run again,
+so changed parameters take effect.
+
+### Part B rules (`detection.py`)
+
+- Peaks: prominence > 10 x sigma on the cleaned signal.
+- Pieces: peaks less than 1 s apart are one piece (one aspirated tissue piece).
+- Label from the largest peak of the piece: higher than the no-dye level (68.9 counts, top 0.1% of
+  water-only peaks) -> `dyed`; otherwise an adc1 peak within ±20 ms -> `solid_no_dye`; otherwise `water`.
