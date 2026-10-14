@@ -48,7 +48,7 @@ r["clean"]     # cleaned 1 kHz adc1 / adc2 and sigma per channel
 | Step | Module | Origin |
 |---|---|---|
 | CSV -> row index + 1 kHz summary | `fast_io` | Sora |
-| Part A: median + Savitzky-Golay + ALS, sigma (quietest 10% of 200 ms blocks) | `preprocessing` | Unmona's `idp/method.py`, unchanged |
+| Part A: median + Savitzky-Golay + ALS, sigma (quietest 10% of 200 ms blocks, idle blocks dropped) | `preprocessing` | Unmona's `idp/method.py`; idle-block drop by Sora (#3) |
 | Part B: peaks, pieces, labels, features | `detection` | Sora's rules, unchanged |
 
 The cache (row index + 1 kHz summary, about 270 MB for 4.7 h) goes to `~/.cache/idp2026`
