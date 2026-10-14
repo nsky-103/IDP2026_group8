@@ -1,193 +1,146 @@
-"""Chunked CSV → binary conversion and memory-mapped signal access."""
+"""Recording access via core.fast_io (index + 1 kHz summary + on-demand windows)."""
 
 from __future__ import annotations
 
-import csv
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 DEFAULT_FS_HZ = 50_000.0
 DTYPE = np.int16
 
+_VISUALIZER_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _VISUALIZER_DIR.parent
+_CORE_ROOT_CANDIDATES = [
+    _REPO_ROOT,
+    _REPO_ROOT / "IDP2026_group8",
+    _REPO_ROOT.parent / "IDP2026_group8",
+]
 
-def npy_path_for(csv_path: Path) -> Path:
-    return csv_path.with_suffix(".npy")
+
+def _ensure_core_on_path() -> Path:
+    for folder in _CORE_ROOT_CANDIDATES:
+        if (folder / "core" / "fast_io.py").exists():
+            root = str(folder)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            return folder
+    searched = "\n".join(f"  {p}" for p in _CORE_ROOT_CANDIDATES)
+    raise FileNotFoundError(f"core package not found. Looked in:\n{searched}")
 
 
-def count_csv_rows(
-    csv_path: Path,
-    progress_callback=None,
-    chunk_bytes: int = 8 * 1024 * 1024,
-) -> int:
-    """Count data rows (excluding header) by scanning raw bytes for ``\\n``.
+@dataclass
+class Recording:
+    """One Marginum CSV opened the Method B way.
 
-    Faster than text ``readline()``: reads multi‑MB binary chunks and counts
-    LF bytes. Assumes one physical line per CSV record (true for Marginum
-    ``adc1,adc2`` exports). Progress is based on file byte offset (0–35%).
+    ``phase``:
+      - ``preview`` — rough overview only (summary still building)
+      - ``ready`` — 1 kHz summary available; Detect and exact overview OK
     """
-    csv_path = Path(csv_path)
-    file_size = max(csv_path.stat().st_size, 1)
-    n_newlines = 0
-    # If the file does not end with a newline, the last line still counts.
-    ends_with_newline = True
 
-    with csv_path.open("rb") as f:
-        while True:
-            chunk = f.read(chunk_bytes)
-            if not chunk:
-                break
-            n_newlines += chunk.count(b"\n")
-            ends_with_newline = chunk.endswith(b"\n")
-            if progress_callback:
-                progress_callback(
-                    0.35 * (f.tell() / file_size),
-                    "Counting rows (binary)…",
-                )
+    path: Path
+    index: Any  # core.fast_io.CsvIndex
+    summary: dict[str, np.ndarray] | None = None
+    preview: dict[str, np.ndarray] | None = None
+    phase: str = "preview"
+    from_cache: bool = False
 
-    # newline count == number of lines when file ends with \\n; otherwise +1
-    n_lines = n_newlines if ends_with_newline else n_newlines + 1
-    # subtract header
-    n_rows = max(n_lines - 1, 0)
-    if progress_callback:
-        progress_callback(0.35, "Counting done")
-    return n_rows
+    @property
+    def n_rows(self) -> int:
+        return int(self.index.n_rows)
 
+    @property
+    def fs_hz(self) -> float:
+        return float(DEFAULT_FS_HZ)
 
-def convert_csv_to_npy(
-    csv_path: Path,
-    npy_path: Path | None = None,
-    chunk_rows: int = 500_000,
-    progress_callback=None,
-) -> Path:
-    """
-    Convert a two-column ADC CSV into a memmap-friendly (N, 2) int16 .npy file.
+    @property
+    def summary_fs_hz(self) -> float:
+        if self.summary is not None and "fs_hz" in self.summary:
+            return float(self.summary["fs_hz"])
+        return 1000.0
 
-    Reads the CSV in chunks so multi-GB files do not need to fit in RAM.
-    ``progress_callback(fraction, message)`` is optional; ``message`` may be omitted
-    by callers that only pass one argument (we accept both).
-    """
-    csv_path = Path(csv_path)
-    npy_path = Path(npy_path) if npy_path else npy_path_for(csv_path)
+    def duration_s(self, fs_hz: float | None = None) -> float:
+        return self.n_rows / float(fs_hz or self.fs_hz)
 
-    def report(p: float, msg: str) -> None:
-        if not progress_callback:
-            return
-        try:
-            progress_callback(p, msg)
-        except TypeError:
-            progress_callback(p)
+    def overview_series(
+        self, max_points: int = 4_000
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None, bool]:
+        """Return overview traces for plotting.
 
-    n_rows = count_csv_rows(csv_path, progress_callback=report if progress_callback else None)
-    if n_rows == 0:
-        raise ValueError(f"No data rows in {csv_path}")
+        Returns
+        -------
+        t, s1, s2, s1_min, s1_max, s2_min, s2_max, approximate
+            Mean (or mid) lines plus optional envelopes. ``approximate`` is True
+            when only the rough preview is available.
+        """
+        if self.summary is not None:
+            mean = np.asarray(self.summary["mean"])
+            lo = np.asarray(self.summary["min"])
+            hi = np.asarray(self.summary["max"])
+            fs = self.summary_fs_hz
+            n = len(mean)
+            stride = max(1, n // max_points)
+            t = (np.arange(0, n, stride, dtype=np.float64)) / fs
+            s1 = mean[::stride, 0].astype(np.float64)
+            s2 = mean[::stride, 1].astype(np.float64)
+            return (
+                t,
+                s1,
+                s2,
+                lo[::stride, 0].astype(np.float64),
+                hi[::stride, 0].astype(np.float64),
+                lo[::stride, 1].astype(np.float64),
+                hi[::stride, 1].astype(np.float64),
+                False,
+            )
 
-    # Write to a temp file first so a crashed convert does not leave a bad .npy
-    tmp_path = npy_path.with_suffix(".npy.partial")
-    out = np.lib.format.open_memmap(
-        tmp_path, mode="w+", dtype=DTYPE, shape=(n_rows, 2)
-    )
+        if self.preview is None:
+            raise RuntimeError("Recording has neither summary nor preview")
 
-    written = 0
-    with csv_path.open("r", newline="") as f:
-        reader = csv.reader(f)
-        next(reader, None)
-        buf: list[list[int]] = []
-        for row in reader:
-            buf.append([int(row[0]), int(row[1])])
-            if len(buf) >= chunk_rows:
-                chunk = np.asarray(buf, dtype=DTYPE)
-                out[written : written + len(chunk)] = chunk
-                written += len(chunk)
-                buf.clear()
-                report(0.35 + 0.65 * (written / n_rows), f"Converting… {written:,}/{n_rows:,}")
+        pv = self.preview
+        t = np.asarray(pv["t"], dtype=np.float64)
+        s1_min = np.asarray(pv["adc1_min"], dtype=np.float64)
+        s1_max = np.asarray(pv["adc1_max"], dtype=np.float64)
+        s2_min = np.asarray(pv["adc2_min"], dtype=np.float64)
+        s2_max = np.asarray(pv["adc2_max"], dtype=np.float64)
+        s1 = 0.5 * (s1_min + s1_max)
+        s2 = 0.5 * (s2_min + s2_max)
+        return t, s1, s2, s1_min, s1_max, s2_min, s2_max, True
 
-        if buf:
-            chunk = np.asarray(buf, dtype=DTYPE)
-            out[written : written + len(chunk)] = chunk
-            written += len(chunk)
+    def load_window(
+        self,
+        start_s: float,
+        end_s: float,
+        fs_hz: float | None = None,
+        max_points: int = 20_000,
+        method: str = "lttb",
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Exact samples for [start_s, end_s) via ``read_window``, then downsample."""
+        _ensure_core_on_path()
+        from core import fast_io
+        from lttb import downsample_lttb
 
-    out.flush()
-    del out
-    report(1.0, "Finishing…")
+        fs = float(fs_hz or self.fs_hz)
+        t, adc1, adc2 = fast_io.read_window(self.index, start_s, end_s, fs_hz=fs)
+        s1 = adc1.astype(np.float64)
+        s2 = adc2.astype(np.float64)
+        n = len(t)
+        if n <= max_points:
+            return t, s1, s2
 
-    if npy_path.exists():
-        npy_path.unlink()
-    tmp_path.replace(npy_path)
-    return npy_path
+        if method == "stride":
+            stride = max(1, n // max_points)
+            idx = np.arange(0, n, stride)
+            return t[idx], s1[idx], s2[idx]
 
+        if method == "lttb":
+            return downsample_lttb(t, s1, s2, max_points=max_points, guide=s2)
 
-def open_signal(npy_path: Path) -> np.memmap:
-    """Open a (N, 2) signal as a read-only memory map."""
-    arr = np.load(npy_path, mmap_mode="r")
-    if arr.ndim != 2 or arr.shape[1] != 2:
-        raise ValueError(f"Expected shape (N, 2), got {arr.shape} in {npy_path}")
-    return arr
-
-
-def ensure_npy(path: Path, progress_callback=None) -> Path:
-    """Return .npy path, converting from CSV if needed (blocking)."""
-    path = Path(path)
-    if path.suffix.lower() == ".npy":
-        return path
-    if path.suffix.lower() != ".csv":
-        raise ValueError(f"Unsupported file type: {path.suffix}")
-    out = npy_path_for(path)
-    if out.exists() and out.stat().st_mtime >= path.stat().st_mtime:
-        return out
-    return convert_csv_to_npy(path, out, progress_callback=progress_callback)
+        raise ValueError(f"Unknown downsample method: {method!r}")
 
 
 def duration_s(n_samples: int, fs_hz: float = DEFAULT_FS_HZ) -> float:
     return n_samples / fs_hz
-
-
-def sample_range(start_s: float, end_s: float, n_samples: int, fs_hz: float = DEFAULT_FS_HZ) -> tuple[int, int]:
-    start_i = max(0, int(start_s * fs_hz))
-    end_i = min(n_samples, int(end_s * fs_hz))
-    if end_i <= start_i:
-        end_i = min(n_samples, start_i + 1)
-    return start_i, end_i
-
-
-def load_window(
-    signal: np.ndarray,
-    start_s: float,
-    end_s: float,
-    fs_hz: float = DEFAULT_FS_HZ,
-    max_points: int = 20_000,
-    method: str = "lttb",
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Load a time window and downsample for plotting.
-
-    ``method``:
-      - ``"lttb"`` — Largest-Triangle-Three-Buckets (Steinarsson 2013), guided
-        by Sensor 2 so fluorescence peaks/troughs survive aggressive downsampling.
-      - ``"stride"`` — every-nth sample (fast, may miss narrow spikes).
-
-    Returns (t_seconds, sensor1, sensor2), each of length ≤ max_points.
-    """
-    from lttb import downsample_lttb
-
-    n = signal.shape[0]
-    start_i, end_i = sample_range(start_s, end_s, n, fs_hz)
-    window = signal[start_i:end_i]
-
-    n_win = window.shape[0]
-    s1_full = window[:, 0].astype(np.float64)
-    s2_full = window[:, 1].astype(np.float64)
-    t_full = (start_i + np.arange(n_win, dtype=np.float64)) / fs_hz
-
-    if n_win <= max_points:
-        return t_full, s1_full, s2_full
-
-    if method == "stride":
-        stride = max(1, n_win // max_points)
-        idx = np.arange(0, n_win, stride)
-        return t_full[idx], s1_full[idx], s2_full[idx]
-
-    if method == "lttb":
-        return downsample_lttb(t_full, s1_full, s2_full, max_points=max_points, guide=s2_full)
-
-    raise ValueError(f"Unknown downsample method: {method!r}")

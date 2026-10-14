@@ -1,47 +1,26 @@
 """
-Wrappers around detection backends used by the Streamlit app.
+Wrappers around Method B detection (core: Part A → Part B).
 
-Backends
---------
-- Method A: ``fluosense_code_only`` (legacy / Task-2 threshold pipeline)
-- Method B: in-repo ``core`` package (fast_io → Part A preprocess → Part B pieces)
-
-No Streamlit here: plain arguments in, plain dicts out.
+Prefer the already-loaded Recording summary in memory so Detect does not
+re-scan a multi-GB CSV. Falls back to ``pipeline.analyse`` (disk cache / CSV).
 """
 
 from __future__ import annotations
 
-import importlib
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-FLUOSENSE_CANDIDATES = [
-    REPO_ROOT / "fluosense_code_only",
-    REPO_ROOT.parent / "fluosense_code_only",
-    REPO_ROOT / "IDP2026_group8" / "fluosense_code_only",
-]
-
-# Directory that contains the ``core`` package (pipeline-a-to-b).
 CORE_ROOT_CANDIDATES = [
-    REPO_ROOT,  # when this file lives in IDP2026_group8/visualizer/
+    REPO_ROOT,
     REPO_ROOT / "IDP2026_group8",
     REPO_ROOT.parent / "IDP2026_group8",
 ]
-
-METHOD_A = "Method A · Threshold"
-METHOD_B = "Method B · Part A/B (core)"
-
-
-def _find_fluosense() -> Path:
-    for folder in FLUOSENSE_CANDIDATES:
-        if (folder / "src" / "pipeline.py").exists():
-            return folder
-    searched = "\n".join(f"  {p}" for p in FLUOSENSE_CANDIDATES)
-    raise FileNotFoundError(f"fluosense_code_only not found. Looked in:\n{searched}")
 
 
 def _find_core_root() -> Path:
@@ -52,149 +31,133 @@ def _find_core_root() -> Path:
     raise FileNotFoundError(f"core package not found. Looked in:\n{searched}")
 
 
-def _load_fluosense():
-    folder = str(_find_fluosense())
-    if folder not in sys.path:
-        sys.path.insert(0, folder)
-
-    from src import config, detect, io_utils, pipeline, preprocess
-
-    for module in (config, detect, preprocess, io_utils, pipeline):
-        importlib.reload(module)
-    return config, io_utils, pipeline, preprocess, detect
-
-
 def _load_core():
     root = str(_find_core_root())
     if root not in sys.path:
         sys.path.insert(0, root)
     from core import detection, pipeline, preprocessing
 
-    for module in (preprocessing, detection, pipeline):
-        importlib.reload(module)
     return pipeline, detection, preprocessing
 
 
-def run_preprocess(source_path: str | Path, fs_hz: float) -> dict:
-    """Downsample → denoise → baseline-correct both channels (fluosense path)."""
-    config, io_utils, _, preprocess, _detect = _load_fluosense()
-    config.FS_HZ = float(fs_hz)
-
-    path = Path(source_path)
-    if path.suffix.lower() == ".npy":
-        t, adc1, adc2, fs_eff = io_utils.load_downsampled(
-            str(path), fs_hz, config.TARGET_RATE_HZ
-        )
-        return {
-            "proc1": preprocess.preprocess_channel(
-                t, adc1, fs_eff, already_downsampled=True
-            ),
-            "proc2": preprocess.preprocess_channel(
-                t, adc2, fs_eff, already_downsampled=True
-            ),
-        }
-
-    df = io_utils.load_raw(str(path), fs_hz)
-    t = df["t"].values
-    return {
-        "proc1": preprocess.preprocess_channel(t, df["adc1"].values, fs_hz),
-        "proc2": preprocess.preprocess_channel(t, df["adc2"].values, fs_hz),
-    }
-
-
-def _blank_noise(blank_path: Path, fs_hz: float, config, io_utils, pipeline, preprocess, detect):
-    suffix = blank_path.suffix.lower()
-    if suffix == ".csv":
-        return pipeline.run_pipeline(str(blank_path), fs_hz=fs_hz)["noise"]
-    if suffix == ".npy":
-        t, _adc1, adc2, fs_eff = io_utils.load_downsampled(
-            str(blank_path), fs_hz, config.TARGET_RATE_HZ
-        )
-        blank_proc2 = preprocess.preprocess_channel(
-            t, adc2, fs_eff, already_downsampled=True
-        )
-        return detect.noise_stats(blank_proc2["corrected"])
-    raise ValueError(f"Blank must be .csv or .npy, got {blank_path.suffix}")
-
-
-def _detect_from_npy(npy_path: Path, fs_hz: float, blank_noise, config, io_utils, pipeline):
-    _t, adc1, adc2, fs_eff = io_utils.load_downsampled(
-        str(npy_path), fs_hz, config.TARGET_RATE_HZ
-    )
-    return pipeline.run_from_arrays(
-        adc1,
-        adc2,
-        fs_hz=fs_eff,
-        blank_noise=blank_noise,
-        target_hz=config.TARGET_RATE_HZ,
-        already_downsampled=True,
-    )
-
-
 def _csv_for_core(source: Path) -> Path:
-    """Method B reads CSV via fast_io; accept sibling .csv next to a .npy."""
     if source.suffix.lower() == ".csv":
         return source
     sibling = source.with_suffix(".csv")
     if sibling.exists():
         return sibling
     raise ValueError(
-        "Method B (core) needs the original CSV path "
-        "(or a sibling .csv next to the loaded .npy)."
+        "Method B needs the original CSV path "
+        "(or a sibling .csv next to the loaded file)."
     )
 
 
 def _events_from_core_pieces(pieces, peaks, clean) -> list[dict]:
-    """Map core piece / peak tables to the visualizer event schema."""
+    """Map core pieces to the visualizer event schema (one marker per piece).
+
+    Per-peak markers were dropped: a multi-hour file can yield tens of thousands
+    of adc2 peaks, which freezes Plotly/Streamlit after Detect.
+    """
     events: list[dict] = []
+    if pieces is None or len(pieces) == 0:
+        return events
+
     fs = float(clean["fs"])
     adc2 = clean["adc2"]
 
-    # Prefer one marker per adc2 peak, labelled by the enclosing piece.
-    peak_times = list(peaks.get("adc2", []))
-    if len(peak_times) == 0 and pieces is not None and len(pieces):
-        for _, row in pieces.iterrows():
-            peak_times.append(0.5 * (float(row["start_s"]) + float(row["end_s"])))
+    for _, row in pieces.iterrows():
+        start_s = float(row["start_s"])
+        end_s = float(row["end_s"])
+        i0 = max(0, int(start_s * fs))
+        i1 = min(len(adc2), max(i0 + 1, int(end_s * fs)))
+        if i1 > i0 and len(adc2):
+            local = int(np.argmax(adc2[i0:i1])) + i0
+            t_peak = local / fs
+        else:
+            t_peak = 0.5 * (start_s + end_s)
 
-    for t_peak in peak_times:
-        label = "water"
-        amplitude = 0.0
-        width_sec = 0.0
-        confirmed = False
-        if pieces is not None and len(pieces):
-            hit = pieces[(pieces["start_s"] <= t_peak) & (t_peak <= pieces["end_s"])]
-            if len(hit):
-                row = hit.iloc[0]
-                label = str(row["label"])
-                amplitude = float(row["max_height"])
-                width_sec = float(row["duration_s"])
-                confirmed = bool(row["confirmed"])
-        if amplitude == 0.0 and len(adc2):
-            i = int(round(t_peak * fs))
-            i = max(0, min(len(adc2) - 1, i))
-            amplitude = float(adc2[i])
-
+        label = str(row["label"])
         valid = label in {"dyed", "solid_no_dye"}
         events.append({
             "polarity": "positive",
             "t_peak": float(t_peak),
-            "amplitude": float(amplitude),
-            "width_sec": float(width_sec),
-            "channel_ratio": 1.0 if confirmed else 0.0,
+            "amplitude": float(row["max_height"]),
+            "width_sec": float(row["duration_s"]),
+            "channel_ratio": 1.0 if bool(row["confirmed"]) else 0.0,
             "class": label,
             "valid": valid,
             "reject_reasons": [] if valid else [f"label={label}"],
+            "n_peaks": int(row["n_peaks"]),
         })
 
     events.sort(key=lambda e: e["t_peak"])
     return events
 
 
-def run_detection_core(source_path: str | Path) -> dict:
-    """Run Method B: core.fast_io → Part A → Part B."""
-    pipeline, detection, _preprocessing = _load_core()
-    csv_path = _csv_for_core(Path(source_path))
-    raw = pipeline.analyse(csv_path)
+def _analyse_from_summary(
+    detection,
+    preprocessing,
+    summary: dict,
+    *,
+    index: Any = None,
+    source_label: str = "memory",
+) -> dict:
+    """Part A + Part B only — no CSV re-read."""
+    timings: dict[str, float] = {}
+    t0 = time.perf_counter()
+    timings[f"read ({source_label})"] = 0.0
+
+    t0 = time.perf_counter()
+    clean = preprocessing.preprocess(summary["mean"], fs=float(summary["fs_hz"]))
+    timings["Part A: clean"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    pieces, peaks = detection.find_pieces(clean)
+    timings["Part B: pieces"] = time.perf_counter() - t0
+
+    return {
+        "index": index,
+        "summary": summary,
+        "clean": clean,
+        "pieces": pieces,
+        "peaks": peaks,
+        "from_cache": True,
+        "timings": timings,
+    }
+
+
+def run_detection(source_path: str | Path, recording: Any | None = None) -> dict:
+    """Run Method B Part A/B.
+
+    If ``recording`` (or the load-job registry) already has a 1 kHz summary,
+    Detect skips the multi-GB CSV scan. Otherwise falls back to
+    ``pipeline.analyse`` (disk cache, then CSV).
+    """
+    pipeline, detection, preprocessing = _load_core()
+    csv_path = _csv_for_core(Path(source_path)).resolve()
+
+    # 1) Explicit Recording from the app
+    rec = recording
+    # 2) Same process registry filled by load_jobs
+    if rec is None or getattr(rec, "summary", None) is None:
+        try:
+            import load_jobs
+
+            rec = load_jobs.get_recording(csv_path)
+        except Exception:
+            rec = None
+
+    if rec is not None and getattr(rec, "summary", None) is not None:
+        raw = _analyse_from_summary(
+            detection,
+            preprocessing,
+            rec.summary,
+            index=getattr(rec, "index", None),
+            source_label="memory",
+        )
+    else:
+        raw = pipeline.analyse(csv_path)
+
     events = _events_from_core_pieces(raw["pieces"], raw["peaks"], raw["clean"])
     n = len(raw["clean"]["adc2"])
     sigma = float(raw["clean"]["sigma_adc2"])
@@ -220,62 +183,6 @@ def run_detection_core(source_path: str | Path) -> dict:
     return _add_summary(result)
 
 
-def run_detection_fluosense(
-    source_path: str | Path,
-    fs_hz: float,
-    blank_path: str,
-    sigma_mult: float,
-    channel_ratio: float,
-) -> dict:
-    """Run Method A (fluosense)."""
-    source = Path(source_path)
-    suffix = source.suffix.lower()
-    if suffix not in {".csv", ".npy"}:
-        raise ValueError(f"Detection needs a .csv or .npy file, got {source.suffix}")
-
-    config, io_utils, pipeline, preprocess, detect = _load_fluosense()
-    config.FS_HZ = float(fs_hz)
-    config.NOISE_SIGMA_MULT = float(sigma_mult)
-    config.MIN_CHANNEL_RATIO = float(channel_ratio)
-
-    blank_noise = None
-    blank_path = blank_path.strip()
-    if blank_path:
-        blank = Path(blank_path)
-        if not blank.exists():
-            raise FileNotFoundError(f"Blank file not found: {blank_path}")
-        blank_noise = _blank_noise(
-            blank, fs_hz, config, io_utils, pipeline, preprocess, detect
-        )
-
-    if suffix == ".npy":
-        result = _detect_from_npy(
-            source, fs_hz, blank_noise, config, io_utils, pipeline
-        )
-    else:
-        result = pipeline.run_pipeline(
-            str(source), fs_hz=fs_hz, blank_noise=blank_noise
-        )
-    result["backend"] = "fluosense"
-    return _add_summary(result)
-
-
-def run_detection(
-    source_path: str | Path,
-    fs_hz: float,
-    blank_path: str,
-    sigma_mult: float,
-    channel_ratio: float,
-    algorithm: str = METHOD_A,
-) -> dict:
-    """Dispatch to Method A (fluosense) or Method B (core Part A/B)."""
-    if algorithm == METHOD_B or "Method B" in str(algorithm) or "Part A/B" in str(algorithm):
-        return run_detection_core(source_path)
-    return run_detection_fluosense(
-        source_path, fs_hz, blank_path, sigma_mult, channel_ratio
-    )
-
-
 def _add_summary(result: dict) -> dict:
     for event in result["events"]:
         event.setdefault("class", "event" if event["valid"] else "rejected")
@@ -294,7 +201,6 @@ def _add_summary(result: dict) -> dict:
         }
         for e in result["events"]
     ]
-    # Optional pieces table for Method B
     pieces = result.get("pieces")
     if pieces is not None and hasattr(pieces, "to_dict"):
         result["pieces_table"] = pieces.to_dict(orient="records")
