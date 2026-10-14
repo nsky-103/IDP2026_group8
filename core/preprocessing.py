@@ -10,13 +10,14 @@ Contributions (see the README at the repository root):
 - The processing itself is Unmona's preprocessing (udgithubit/IDP, idp/method.py), marked below.
 - Input from fast_io and the output dict for detection.py: Sora.
 - Dropping idle blocks before sigma (GitHub #3): Sora, marked inside quiet_sigma.
+- adc1 response check (GitHub #4): Sora.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from scipy import sparse
-from scipy.signal import medfilt, savgol_filter
+from scipy.signal import find_peaks, medfilt, savgol_filter
 from scipy.sparse.linalg import spsolve
 
 FS_HZ = 1000.0
@@ -76,14 +77,39 @@ def quiet_sigma(x: np.ndarray, fs: float = FS_HZ, block_s: float = 0.2, frac: fl
 # ---- end of Unmona's idea ---------------------------------------------------------------------
 
 
+ADC1_MIN_RESPONSE = 0.1
+
+
+def adc1_response(adc1: np.ndarray, adc2: np.ndarray, fs: float = FS_HZ,
+                  n_top: int = 50, window_s: float = 0.020) -> float:
+    """Median of adc1 / adc2 at the n_top largest adc2 peaks (adc1 = its max within +-window_s).
+
+    0.125-0.64 in the 2025-2026 recordings, 0.019-0.058 in the 2023 test signals, where adc1
+    hardly responds (GitHub #4, 05_信号特性の実測/39_adc1_response.py). There the adc1 threshold
+    is only about 2 counts and noise passes the two-channel check by chance, so below
+    ADC1_MIN_RESPONSE adc1 is not used.
+    """
+    p, _ = find_peaks(adc2, distance=int(0.1 * fs))
+    p = p[np.argsort(adc2[p])[-n_top:]]
+    p = p[adc2[p] > 0]
+    if len(p) == 0:
+        return float("nan")
+    w = int(window_s * fs)
+    return float(np.median([adc1[max(0, i - w): i + w + 1].max() / adc2[i] for i in p]))
+
+
 def preprocess(mean_1khz: np.ndarray, fs: float = FS_HZ, params: dict = PARAMS) -> dict:
-    """(n, 2) 1 kHz block means -> cleaned adc1 / adc2 (float32) and sigma per channel."""
+    """(n, 2) 1 kHz block means -> cleaned adc1 / adc2 (float32), sigma per channel and
+    whether adc1 responds well enough for the two-channel check."""
     a1 = clean_channel(mean_1khz[:, 0], params)
     a2 = clean_channel(mean_1khz[:, 1], params)
+    response = adc1_response(a1, a2, fs)
     return {
         "fs": fs,
         "adc1": a1.astype(np.float32),
         "adc2": a2.astype(np.float32),
         "sigma_adc1": quiet_sigma(a1, fs),
         "sigma_adc2": quiet_sigma(a2, fs),
+        "adc1_response": response,
+        "adc1_usable": bool(response >= ADC1_MIN_RESPONSE),   # NaN (no adc2 peaks) -> False
     }

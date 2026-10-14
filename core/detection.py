@@ -8,6 +8,8 @@
    - higher than NO_DYE_LEVEL               -> "dyed"
    - otherwise an adc1 peak within +-PAIR_S -> "solid_no_dye" (tissue without dye)
    - otherwise                              -> "water"
+   - if adc1 does not respond (clean["adc1_usable"] False, as in the 2023 test signals),
+     dim pieces are "undecided" instead of the last two
 4. Features per piece: start, end, duration, number of peaks, max height, area.
 
 NO_DYE_LEVEL is the top 0.1% of sub-peak heights in two water-only recordings
@@ -47,7 +49,8 @@ def find_pieces(clean: dict, k: float = K_SIGMA, gap_s: float = GAP_S,
 
     p2 = detect_peaks(a2, clean["sigma_adc2"], fs, k)
     p2 = p2[(p2 > edge) & (p2 < n - edge)]
-    p1 = detect_peaks(a1, clean["sigma_adc1"], fs, k)
+    use_adc1 = clean.get("adc1_usable", True)
+    p1 = detect_peaks(a1, clean["sigma_adc1"], fs, k) if use_adc1 else np.empty(0, np.int64)
     peaks = {"adc2": p2 / fs, "adc1": p1 / fs}
     if len(p2) == 0:
         return pd.DataFrame(columns=COLUMNS), peaks
@@ -66,6 +69,7 @@ def find_pieces(clean: dict, k: float = K_SIGMA, gap_s: float = GAP_S,
             "n_peaks": len(g), "max_height": round(h, 1),
             "area": round(float(np.clip(a2[s:e], 0, None).sum() * 1000 / fs), 0),  # counts x ms
             "confirmed": bool(confirmed),
-            "label": "dyed" if h > no_dye_level else ("solid_no_dye" if confirmed else "water"),
+            "label": ("dyed" if h > no_dye_level else "undecided" if not use_adc1
+                      else "solid_no_dye" if confirmed else "water"),
         })
     return pd.DataFrame(rows, columns=COLUMNS), peaks
