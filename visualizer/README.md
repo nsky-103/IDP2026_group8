@@ -27,8 +27,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-1. Enter a CSV/NPY path → **Load**
-2. Pick an **Algorithm**, adjust its parameters → **Detect peaks**
+1. Enter a CSV path → **Load** (rough overview first, then the 1 kHz summary in the background)
+2. When the run shows *ready*: pick an **Algorithm**, adjust its parameters → **Detect peaks**
 3. Click an event (or a heatmap cell) to zoom to it
 
 ## Code layout
@@ -42,19 +42,17 @@ Drawing and algorithms are kept apart:
 | State kept between clicks | `state.py` | yes |
 | Viewing-window math | `viewport.py` | no |
 | Figures | `plots.py`, `lttb.py` | no |
-| Reading the signal | `signal_io.py`, `convert_jobs.py` | no |
+| Reading the signal | `signal_io.py` (`Recording`), `load_jobs.py` (background load) | no |
 | Detection algorithms | `detectors.py` | no |
 
 Every algorithm returns the same `Detection` (an `events` table with at least `t_peak`, `amplitude`,
 `valid`, `label`), so all panels work with any algorithm.
 
-**Add an algorithm:** write `def my_detector(csv_path, fs_hz, **params) -> Detection` in
-`detectors.py` and add a `Detector(...)` entry with its `Param`s to `DETECTORS`. It appears in
-the *Algorithm* menu with its own controls; no UI code needed. Add a `size_mm` column to fill the
-"estimated size" on the event card.
-
-The *Threshold · fluosense* algorithm needs `fluosense_code_only` next to this repository (it is not
-part of it). *Pieces · core pipeline* uses only this repository.
+**Add an algorithm:** write `def my_detector(recording, **params) -> Detection` in `detectors.py`
+(`recording.summary` holds the 1 kHz mean/min/max, so the CSV is not read again) and add a
+`Detector(...)` entry with its `Param`s to `DETECTORS`. It appears in the *Algorithm* menu with its
+own controls; no UI code needed. Add a `size_mm` column to fill the "estimated size" on the event
+card.
 
 ## Data policy
 

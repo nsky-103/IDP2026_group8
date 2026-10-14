@@ -9,6 +9,7 @@ import state
 from style import card, fmt_time, section
 
 MAX_EVENTS_LISTED = 25
+MAX_TABLE_ROWS = 500
 EVENT_ZOOM_S = 5.0  # "Show in plot" shows ± this many seconds around the event
 
 
@@ -42,7 +43,7 @@ def render_list(run: str, total_s: float) -> None:
     section(f"Events · {len(events)}", "largest first")
     detection = state.detection(run)
     if detection is None:
-        st.caption("Run **Detect peaks** to list events.")
+        st.caption("Run **Detect peaks** to list events (after the 1 kHz summary is ready).")
         return
 
     selected = st.session_state.get("selected_event")
@@ -60,4 +61,10 @@ def render_list(run: str, total_s: float) -> None:
     with st.expander("Detection summary"):
         for name, value in detection.summary.items():
             st.metric(name, value)
-        st.dataframe(detection.events, use_container_width=True)
+        if detection.timings:
+            st.json(detection.timings)
+        table = detection.events
+        if len(table) > MAX_TABLE_ROWS:  # a huge table freezes the page
+            st.caption(f"Showing {MAX_TABLE_ROWS} / {len(table)} rows (largest amplitudes).")
+            table = table.nlargest(MAX_TABLE_ROWS, "amplitude")
+        st.dataframe(table, use_container_width=True)

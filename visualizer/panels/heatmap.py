@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-from pathlib import Path
 
 import numpy as np
 import streamlit as st
@@ -24,22 +23,19 @@ METRICS = {  # name: (kind, channel)
 MAX_HEIGHT = 480  # px; taller heatmaps scroll
 
 
-@st.cache_data(show_spinner="Computing heatmap…", max_entries=16)
-def _peak_to_peak(npy_path: str, mtime: float, bin_s: float, fs_hz: float, channel: int):
-    """Full-resolution binned stats; cached per file/settings (mtime busts stale caches)."""
-    signal = signal_io.open_signal(Path(npy_path))
-    return signal_io.binned_peak_to_peak(signal, bin_s, fs_hz=fs_hz, channel=channel)
-
-
 def _event_counts(run: str, bin_s: float, n_bins: int) -> np.ndarray:
     bins = (state.accepted_events(run)["t_peak"].to_numpy(dtype=float) // bin_s).astype(int)
     bins = bins[(bins >= 0) & (bins < n_bins)]
     return np.bincount(bins, minlength=n_bins).astype(float)
 
 
-def render(run: str, total_s: float, settings) -> None:
+def render(recording: signal_io.Recording, run: str, total_s: float, settings) -> None:
+    """Peak-to-peak comes from the 1 kHz summary's min/max envelope (not full-rate samples)."""
     with st.container(border=True, key="heatmap_box"):
         section("Activity heatmap")
+        if recording.phase != "ready" or recording.summary is None:
+            st.caption("Heatmap needs the 1 kHz summary (still building…).")
+            return
 
         row_s = settings.heatmap_row_s
         bin_s = row_s / settings.heatmap_cells
@@ -48,8 +44,7 @@ def render(run: str, total_s: float, settings) -> None:
         if kind == "events":
             values = _event_counts(run, bin_s, n_bins)
         else:
-            npy = state.runs()[run]["npy"]
-            values = _peak_to_peak(npy, Path(npy).stat().st_mtime, bin_s, settings.fs_hz, channel)
+            values = recording.binned_peak_to_peak(bin_s, channel=channel)
 
         fig = plots.time_heatmap_figure(values, bin_s=bin_s, row_s=row_s, total_s=total_s,
                                         window=st.session_state.get("window"))

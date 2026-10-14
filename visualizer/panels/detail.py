@@ -12,7 +12,7 @@ from panels.controls import Settings
 from style import fmt_time
 
 
-def render(signal, run: str, total_s: float, settings: Settings) -> None:
+def render(recording: signal_io.Recording, run: str, total_s: float, settings: Settings) -> None:
     with st.container(border=True):
         start_s, end_s = state.window(total_s)
         event_id = st.session_state.get("selected_event")
@@ -24,10 +24,14 @@ def render(signal, run: str, total_s: float, settings: Settings) -> None:
             st.warning("Select at least one channel.")
             return
 
-        t, s1, s2 = signal_io.load_window(
-            signal, start_s, end_s, fs_hz=settings.fs_hz,
-            max_points=settings.max_points, method=settings.downsample_method,
-        )
+        try:  # exact samples, read from the CSV on demand (core.fast_io.read_window)
+            t, s1, s2 = recording.load_window(
+                start_s, end_s, fs_hz=settings.fs_hz,
+                max_points=settings.max_points, method=settings.downsample_method,
+            )
+        except Exception as exc:
+            st.error(f"Could not read detail window: {exc}")
+            return
         detection = state.detection(run)
         fig = plots.signal_figure(
             t, s1, s2, channels=settings.channels, start_s=start_s, end_s=end_s,
@@ -39,8 +43,8 @@ def render(signal, run: str, total_s: float, settings: Settings) -> None:
             **plots.PLOTLY_ZOOM_CONFIG,
             "modeBarButtonsToAdd": ["zoom2d", "pan2d", "autoScale2d", "resetScale2d"],
         })
-        st.caption("Zoom out / Fit all change the black frame on the top graph. "
-                   "Drag the chart to pan; use toolbar 🔍 for box-zoom.")
+        st.caption("Detail uses on-demand CSV reads (read_window), not a full-rate NPY. "
+                   "Zoom out / Fit all update the black frame on the overview.")
 
         if detection is not None:
             with st.expander("Peak stems (optional)", expanded=False):

@@ -43,9 +43,13 @@ def render() -> Settings:
         if detector.description:
             st.caption(detector.description)
         params = {p.key: _param_widget(p, key=f"param_{detector.name}_{p.key}") for p in detector.params}
-        show_rejected = st.checkbox("Show rejected candidates (gray)", value=True)
-    detect_clicked = st.button("Detect peaks", type="primary", disabled=not state.runs(),
-                               use_container_width=True)
+    show_rejected = st.checkbox("Show rejected / water (gray)", value=True)
+    run = state.active_run()
+    detect_clicked = st.button("Detect peaks", type="primary", disabled=not state.is_ready(run),
+                               use_container_width=True,
+                               help="Enabled after the 1 kHz summary is ready.")
+    if run and not state.is_ready(run):
+        st.caption("Waiting for 1 kHz summary…")
 
     section("Heatmap")
     row_label = st.selectbox("Row length", list(heatmap.ROW_CHOICES), index=2, key="hm_row")
@@ -58,9 +62,9 @@ def render() -> Settings:
     with st.expander("Display settings"):
         fs_hz = st.number_input("Sample rate (Hz)", value=float(signal_io.DEFAULT_FS_HZ),
                                 min_value=1.0, step=1000.0)
-        max_points = st.slider("Max plot points", 2_000, 100_000, 20_000, 1_000)
+        max_points = st.slider("Max plot points (detail)", 2_000, 100_000, 20_000, 1_000)
         downsample_method = st.selectbox(
-            "Plot downsample", ["lttb", "stride"],
+            "Detail downsample", ["lttb", "stride"],
             format_func=lambda m: "LTTB (keeps peaks)" if m == "lttb" else "Every-nth sample",
         )
 
@@ -92,13 +96,11 @@ def _param_widget(p: Param, key: str):
     return st.number_input(p.label, value=p.default, step=p.step, help=p.help or None, key=key)
 
 
-def run_detection(run: str, settings: Settings) -> None:
-    """Run the chosen detector on a run and store the result."""
-    with st.spinner(f"Running {settings.detector.name}…"):
+def run_detection(run: str, recording: signal_io.Recording, settings: Settings) -> None:
+    """Run the chosen detector on the loaded recording and store the result."""
+    with st.spinner(f"Running {settings.detector.name} on the 1 kHz summary…"):
         try:
-            state.detections()[run] = detectors.run(
-                settings.detector, state.runs()[run]["source"], settings.fs_hz, settings.params
-            )
+            state.detections()[run] = detectors.run(settings.detector, recording, settings.params)
         except Exception as exc:
             st.error(f"Detection failed: {exc}")
             return

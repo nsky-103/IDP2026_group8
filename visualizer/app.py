@@ -19,9 +19,9 @@ Other files
     viewport.py      viewing-window math (zoom, pan, clamp)
     style.py         CSS, section headings, cards, time format
     plots.py         Plotly figures (no Streamlit)
-    signal_io.py     CSV → NPY conversion + loading a time window
-    convert_jobs.py  background CSV → NPY worker (keeps the UI responsive)
-    lttb.py          LTTB downsampling for plots
+    signal_io.py     Recording: row index + 1 kHz summary + exact windows (core.fast_io)
+    load_jobs.py     background coarse-first load: index → preview → 1 kHz summary
+    lttb.py          LTTB downsampling for the detail plot
     detectors.py     detection algorithms and their result format (no UI)
 
 How to add a feature
@@ -36,17 +36,18 @@ How to add a feature
 from __future__ import annotations
 
 import html
-import sys
+import time
 from pathlib import Path
 
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # for `core` (used by detectors.py)
+import load_jobs
+import signal_io
+import state
+import style
+from panels import controls, data_import, detail, events, heatmap, overview
 
-import signal_io  # noqa: E402
-import state  # noqa: E402
-import style  # noqa: E402
-from panels import controls, data_import, detail, events, heatmap, overview  # noqa: E402
+signal_io._ensure_core_on_path()  # `core` lives next to this folder
 
 
 def main() -> None:
@@ -66,20 +67,29 @@ def main() -> None:
         center.info("Drop a Marginum CSV into **Import**, or load one from a local path.")
         return
 
-    signal = signal_io.open_signal(Path(state.runs()[run]["npy"]))
-    total_s = signal_io.duration_s(signal.shape[0], settings.fs_hz)
-    source_name = Path(state.runs()[run]["source"]).name
+    csv_path = Path(state.runs()[run]["csv"])
+    recording = load_jobs.get_recording(csv_path)
+    if recording is None:
+        center.info("Loading recording…")
+        time.sleep(0.3)
+        st.rerun()
+    state.runs()[run]["phase"] = recording.phase  # keep in sync with the live Recording
+    total_s = recording.duration_s(settings.fs_hz)
     header_right.markdown(
-        f'<div class="sv-chip">{html.escape(source_name)} · {style.fmt_time(total_s)}</div>',
+        f'<div class="sv-chip">{html.escape(csv_path.name)} · {style.fmt_time(total_s)}'
+        f' · {recording.phase}</div>',
         unsafe_allow_html=True,
     )
 
     with center:
         if settings.detect_clicked:
-            controls.run_detection(run, settings)
-        overview.render(signal, run, total_s, settings)
-        detail.render(signal, run, total_s, settings)
-        heatmap.render(run, total_s, settings)
+            if recording.phase != "ready":
+                st.warning("Wait until the 1 kHz summary is ready before detecting.")
+            else:
+                controls.run_detection(run, recording, settings)
+        overview.render(recording, run, total_s, settings)
+        detail.render(recording, run, total_s, settings)
+        heatmap.render(recording, run, total_s, settings)
 
     with right:
         events.render(run, total_s)

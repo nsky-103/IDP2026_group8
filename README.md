@@ -51,6 +51,8 @@ opened before, the row index and the 1 kHz data are loaded from there (0.1 s). O
    - minus `baseline()`: the signal is averaged to 10 Hz, `als()` (asymmetric least squares) fits a
      slow line under the peaks, and the line is interpolated back to 1 kHz
 2. `quiet_sigma()`: noise level sigma = RMS of the std of the quietest 10% of 200 ms blocks.
+   Idle blocks (std below half the median block std, i.e. no flow) are dropped first; otherwise
+   recordings with long idle periods get a sigma below the water wiggles and pieces merge (#3).
 
 Output: cleaned adc1 / adc2 (baseline = 0, in counts) and sigma per channel.
 
@@ -93,6 +95,7 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
 | Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
 | Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features | `core/detection.py` | Sora |
 | Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
+| Dropping idle blocks before sigma (#3) | `core/preprocessing.py` (marked inside `quiet_sigma`) | Sora |
 | Pipeline and command-line runner | `core/pipeline.py`, `tools/run_pipeline.py` | Sora |
 
 Analysis behind the values (no-dye level 68.9, 1 s gap, ±20 ms) was done by Sora outside this

@@ -1,7 +1,7 @@
 """Everything the app remembers between clicks (``st.session_state``), in one place.
 
 Streamlit reruns the whole script on every click, so state lives here:
-    runs            {run name: {"source": csv path, "npy": npy path}}
+    runs            {run name: {"csv": csv path, "phase": "preview" | "ready"}}
     active_run      name of the selected run
     detections      {run name: detectors.Detection}
     window          (start_s, end_s) viewing range
@@ -45,13 +45,22 @@ def active_run() -> str | None:
     return run if run in runs() else None
 
 
-def register_run(source: Path, npy: Path) -> None:
-    """Add a finished conversion to the runs list and select it."""
-    name = source.stem
-    runs()[name] = {"source": str(source), "npy": str(npy)}
-    detections().pop(name, None)
-    ss["active_run"] = name
-    reset_view()
+def register_run(csv_path: Path, phase: str) -> None:
+    """Add a run once its preview is available, or update it when its summary is ready."""
+    name = csv_path.stem
+    prev = runs().get(name)
+    runs()[name] = {"csv": str(csv_path), "phase": phase}
+    if prev is None or (phase == "preview" and prev["phase"] != phase):
+        detections().pop(name, None)  # new or reloaded run: select it, start fresh
+        ss["active_run"] = name
+        reset_view()
+    elif prev["phase"] != phase:
+        bump("_overview_chart_gen")  # summary ready: keep the window, redraw the overview
+
+
+def is_ready(run: str | None) -> bool:
+    """True when the run's 1 kHz summary is loaded (needed for detection and the heatmap)."""
+    return bool(run) and runs().get(run, {}).get("phase") == "ready"
 
 
 def detection(run: str) -> Detection | None:

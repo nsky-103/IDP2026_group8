@@ -1,4 +1,9 @@
-"""Left panel, top: import recordings (upload or local path) and pick a run."""
+"""Left panel, top: import recordings (upload or local path) and pick a run.
+
+Loading is coarse-first (``load_jobs``): row index -> rough preview -> 1 kHz summary,
+in a background thread. A run appears as soon as its preview exists ("preview…") and
+becomes "ready" when the summary is done.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +13,12 @@ from pathlib import Path
 
 import streamlit as st
 
-import convert_jobs
+import load_jobs
 import state
 from style import section
 
-_PROJECT = Path(__file__).resolve().parent.parent.parent
+_VISUALIZER = Path(__file__).resolve().parent.parent
+_PROJECT = _VISUALIZER.parent
 # Prefer local course data if present; otherwise the shared OneDrive-style folder.
 _SUCTION = Path("2025-10-29 Suction data for tumor size estimation") / "Suction data" / "Original"
 _DATA_CANDIDATES = [
@@ -23,6 +29,7 @@ _DATA_CANDIDATES = [
 DATA_DIR = next((p for p in _DATA_CANDIDATES if p.exists()), _DATA_CANDIDATES[0])
 DEFAULT_CSV = DATA_DIR / "5. suction_HIGH_CONC_1ml_and_no_resuction.csv"
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "marginum_uploads"
+ACTIVE = ("queued", "indexing", "preview", "summarizing")
 
 
 def render() -> None:
@@ -30,16 +37,34 @@ def render() -> None:
     render_runs()
 
 
+def resolve_data_path(raw: str) -> tuple[Path | None, list[Path]]:
+    """Path typed by the user -> existing file (or None) and the places tried.
+
+    Accepts quotes, a leading ``@`` (editor-style reference), and paths relative to the
+    working directory, the project folder or this folder.
+    """
+    text = (raw or "").strip().strip('"').strip("'").removeprefix("@").strip()
+    if not text:
+        return None, []
+    candidate = Path(text).expanduser()
+    if candidate.is_absolute():
+        tried = [candidate]
+    else:
+        tried = [(base / candidate).resolve() for base in (Path.cwd(), _PROJECT, _VISUALIZER)]
+    return next((p for p in tried if p.is_file()), None), tried
+
+
 def render_import() -> None:
     section("Import")
-    _poll_convert_jobs()
+    _poll_load_jobs()
 
     started = False
     uploads = st.file_uploader(
         "Drop CSV files here",
-        type=["csv", "npy"],
+        type=["csv"],
         accept_multiple_files=True,
-        help="Browser uploads are size-limited. For multi-GB files use a local path below.",
+        help=("Upload limit is 16 GB (.streamlit/config.toml). For multi-GB samples (~8 GB), "
+              "prefer a local path below — browser upload is slow and memory-heavy."),
     )
     # The uploader keeps its files on every rerun, so remember which ones were added.
     added = st.session_state.setdefault("added_uploads", set())
@@ -49,51 +74,62 @@ def render_import() -> None:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         saved = UPLOAD_DIR / file.name
         saved.write_bytes(file.getbuffer())
-        convert_jobs.start_convert(saved)
+        load_jobs.start_load(saved)
         added.add((file.name, file.size))
         started = True
 
     with st.expander("…or load from a local path", expanded=not state.runs()):
         path_text = st.text_input(
-            "Path to CSV or NPY",
+            "Path to CSV",
             value=str(DEFAULT_CSV) if DEFAULT_CSV.exists() else "",
-        ).strip()
+            help=("Absolute path, or relative to the project folder. `@folder/...` prefixes are OK. "
+                  "Load is coarse-first: rough overview, then 1 kHz summary (cached)."),
+        )
         if st.button("Load", type="primary", use_container_width=True):
-            if path_text and Path(path_text).exists():
-                convert_jobs.start_convert(Path(path_text))
-                started = True
+            path, tried = resolve_data_path(path_text)
+            if path is None:
+                st.error(f"File not found. Paste the full path, or a path relative to `{_PROJECT}`.")
+                if tried:
+                    st.caption("Tried:\n" + "\n".join(f"- `{p}`" for p in tried))
+            elif path.suffix.lower() != ".csv":
+                st.error("Only `.csv` files are supported (Method B uses fast_io).")
             else:
-                st.error("File not found. Check the path.")
+                st.info(f"Loading `{path.name}` ({path.stat().st_size / 1024 ** 3:.2f} GB). "
+                        "Rough overview appears first; 1 kHz summary continues in the background.")
+                load_jobs.start_load(path)
+                started = True
 
     if started:
         st.rerun()  # start polling the new job
 
 
-def _poll_convert_jobs() -> None:
-    """Show progress of background CSV -> NPY jobs; register runs when they finish."""
-    jobs = convert_jobs.all_jobs()
-    running = finished = False
-    for job in jobs:
+def _poll_load_jobs() -> None:
+    """Show progress of background loads; add runs at preview, mark them ready at the end."""
+    active = changed = False
+    for job in load_jobs.all_jobs():
         source = Path(job.source)
-        if job.status in ("queued", "running"):
-            running = True
+        if job.status in ACTIVE:
+            active = True
             st.progress(min(max(job.progress, 0.0), 1.0),
                         text=f"{source.name}: {job.message} ({job.progress:.0%})")
-        elif job.status == "done" and job.npy_path:
-            state.register_run(source, Path(job.npy_path))
-            convert_jobs.clear_job(source)
+            if job.has_preview:
+                state.register_run(source, "preview")
+        elif job.status == "ready":
+            state.register_run(source, "ready")
+            load_jobs.clear_job(source)
             st.toast(f"Loaded {source.name}", icon="✅")
-            finished = True
+            changed = True
         elif job.status == "error":
             st.error(f"{source.name}: {job.error or job.message}")
-            convert_jobs.clear_job(source)
-            finished = True
+            load_jobs.clear_job(source)
+            changed = True
 
-    if running:
-        st.caption("Conversion runs in the background — you can keep using the UI.")
+    if active:
+        st.caption("Coarse-first load: rough overview first, then 1 kHz summary in the "
+                   "background. You can keep using the UI.")
         time.sleep(0.4)
         st.rerun()
-    elif finished:
+    elif changed:
         st.rerun()
 
 
@@ -104,13 +140,16 @@ def render_runs() -> None:
         st.caption("No runs loaded yet.")
         return
 
+    def caption(name: str) -> str:
+        tag = "ready" if state.is_ready(name) else "preview…"
+        n_events = len(state.accepted_events(name)) if state.detection(name) else 0
+        return tag + (f" · {n_events} events" if n_events else "")
+
     names = list(runs)
     st.radio(
         "Runs",
         options=names,
-        captions=[
-            f"{len(state.accepted_events(n))} events" if state.detection(n) else "" for n in names
-        ],
+        captions=[caption(n) for n in names],
         key="active_run",
         on_change=state.reset_view,
         label_visibility="collapsed",
