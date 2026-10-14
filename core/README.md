@@ -61,3 +61,5 @@ so changed parameters take effect.
 - Pieces: peaks less than 1 s apart are one piece (one aspirated tissue piece).
 - Label from the largest peak of the piece: higher than the no-dye level (68.9 counts, top 0.1% of
   water-only peaks) -> `dyed`; otherwise an adc1 peak within ±20 ms -> `solid_no_dye`; otherwise `water`.
+- If adc1 hardly responds (adc1 / adc2 at the largest peaks below 0.1, as in the 2023 test signals),
+  adc1 is not used and dim pieces are `undecided`.

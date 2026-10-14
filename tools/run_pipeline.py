@@ -39,7 +39,7 @@ def main() -> None:
         minutes = len(c["adc2"]) / c["fs"] / 60
         steps = "  ".join(f"{k} {v:.1f} s" for k, v in r["timings"].items())
         print(f"{f.name[:50]:<52}{minutes:7.1f} min  pieces {len(pc):4d}  {counts}  "
-              f"sigma {c['sigma_adc2']:.2f}  |  {steps}",
+              f"sigma {c['sigma_adc2']:.2f}  adc1 {'used' if c['adc1_usable'] else 'NOT USED'}  |  {steps}",
               flush=True)
         if args.out:
             pc.to_csv(args.out / f"{f.stem}.pieces.csv", index=False)

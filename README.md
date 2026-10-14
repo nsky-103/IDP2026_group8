@@ -54,7 +54,10 @@ opened before, the row index and the 1 kHz data are loaded from there (0.1 s). O
    Idle blocks (std below half the median block std, i.e. no flow) are dropped first; otherwise
    recordings with long idle periods get a sigma below the water wiggles and pieces merge (#3).
 
-Output: cleaned adc1 / adc2 (baseline = 0, in counts) and sigma per channel.
+3. `adc1_response()`: median adc1 / adc2 at the 50 largest adc2 peaks. Below 0.1 (the 2023 test
+   signals, where adc1 hardly responds) adc1 is not used for the two-channel check (#4).
+
+Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel and whether adc1 is used.
 
 ### 3. Part B: find and judge the pieces — `core/detection.py`
 
@@ -70,6 +73,7 @@ Output: cleaned adc1 / adc2 (baseline = 0, in counts) and sigma per channel.
    | higher than the no-dye level (68.9 counts) | `dyed` |
    | lower, but an adc1 peak within ±20 ms | `solid_no_dye` (tissue without dye) |
    | lower and no adc1 peak | `water` |
+   | lower, and adc1 not used (see Part A step 3) | `undecided` |
 
 4. **Features**: the piece spans from 30 ms before its first peak to 30 ms after its last peak.
    Start, end, duration, number of peaks, max height and area (sum of the positive signal, counts x ms).
@@ -96,6 +100,7 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
 | Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features | `core/detection.py` | Sora |
 | Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
 | Dropping idle blocks before sigma (#3) | `core/preprocessing.py` (marked inside `quiet_sigma`) | Sora |
+| adc1 response check, `undecided` label (#4) | `core/preprocessing.py`, `core/detection.py` | Sora |
 | Pipeline and command-line runner | `core/pipeline.py`, `tools/run_pipeline.py` | Sora |
 
 Analysis behind the values (no-dye level 68.9, 1 s gap, ±20 ms) was done by Sora outside this
