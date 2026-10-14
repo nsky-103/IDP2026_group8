@@ -39,7 +39,7 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings: S
             show_rejected=settings.show_rejected, height=420,
         )
         fig.update_layout(dragmode="pan")  # pan is easier than box-zoom on trackpads
-        st.plotly_chart(fig, use_container_width=True, key="detail_chart", config={
+        st.plotly_chart(fig, width="stretch", key="detail_chart", config={
             **plots.PLOTLY_ZOOM_CONFIG,
             "modeBarButtonsToAdd": ["zoom2d", "pan2d", "autoScale2d", "resetScale2d"],
         })
@@ -52,7 +52,7 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings: S
                     plots.peaks_overview_figure(detection.events, trace=detection.trace,
                                                 threshold=detection.threshold,
                                                 show_rejected=settings.show_rejected),
-                    use_container_width=True, key="peaks_stem_chart", config=plots.PLOTLY_ZOOM_CONFIG,
+                    width="stretch", key="peaks_stem_chart", config=plots.PLOTLY_ZOOM_CONFIG,
                 )
 
 
@@ -68,6 +68,6 @@ def _zoom_buttons(total_s: float) -> None:
         "zoom_fit_all": ("⛶ Fit all", lambda: (0.0, float(total_s))),
     }
     for col, (key, (label, new_window)) in zip(st.columns(len(actions)), actions.items()):
-        if col.button(label, use_container_width=True, key=key):
+        if col.button(label, width="stretch", key=key):
             state.set_window(*new_window(), total_s)
             st.rerun()

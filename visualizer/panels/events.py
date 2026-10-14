@@ -52,7 +52,7 @@ def render_list(run: str, total_s: float) -> None:
         label = f"{event_id} · {fmt_time(e['t_peak'])} · {e['label']} · amp {e['amplitude']:.1f}"
         with st.expander(label, expanded=event_id == selected):
             st.caption(f"polarity: {e['polarity']}")
-            st.button("Show in plot", key=f"show_{event_id}", use_container_width=True,
+            st.button("Show in plot", key=f"show_{event_id}", width="stretch",
                       on_click=state.select_event,
                       args=(event_id, float(e["t_peak"]), total_s, EVENT_ZOOM_S))
     if len(largest) > MAX_EVENTS_LISTED:
@@ -67,4 +67,4 @@ def render_list(run: str, total_s: float) -> None:
         if len(table) > MAX_TABLE_ROWS:  # a huge table freezes the page
             st.caption(f"Showing {MAX_TABLE_ROWS} / {len(table)} rows (largest amplitudes).")
             table = table.nlargest(MAX_TABLE_ROWS, "amplitude")
-        st.dataframe(table, use_container_width=True)
+        st.dataframe(table, width="stretch")

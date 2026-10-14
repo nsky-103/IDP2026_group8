@@ -46,7 +46,7 @@ def render() -> Settings:
     show_rejected = st.checkbox("Show rejected / water (gray)", value=True)
     run = state.active_run()
     detect_clicked = st.button("Detect peaks", type="primary", disabled=not state.is_ready(run),
-                               use_container_width=True,
+                               width="stretch",
                                help="Enabled after the 1 kHz summary is ready.")
     if run and not state.is_ready(run):
         st.caption("Waiting for 1 kHz summary…")
