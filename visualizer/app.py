@@ -7,7 +7,7 @@ Page layout
 -----------
     header   title · file info
     left     import · runs · channels · detection settings
-    center   full-recording overview · detail zoom
+    center   full-recording overview · detail zoom · activity heatmap
     right    selected event · events list
 
 Files
@@ -38,6 +38,7 @@ remembered between clicks is stored in st.session_state:
 
 from __future__ import annotations
 
+import functools
 import html
 import importlib
 import tempfile
@@ -639,6 +640,105 @@ def render_window(
                 )
 
 
+HEATMAP_ROW_CHOICES = {"10 s": 10.0, "30 s": 30.0, "1 min": 60.0, "2 min": 120.0, "5 min": 300.0}
+HEATMAP_MAX_HEIGHT = 480  # px; taller heatmaps scroll
+HEATMAP_METRICS = {
+    "Sensor 2 activity (peak-to-peak)": ("ptp", 1),
+    "Sensor 1 activity (peak-to-peak)": ("ptp", 0),
+    "Detected events (count)": ("events", None),
+}
+
+
+@st.cache_data(show_spinner="Computing heatmap…", max_entries=16)
+def _cached_peak_to_peak(npy_path: str, mtime: float, bin_s: float, fs_hz: float, channel: int):
+    """Full-resolution binned stats; cached per file/settings (mtime busts stale caches)."""
+    signal = signal_io.open_signal(Path(npy_path))
+    return signal_io.binned_peak_to_peak(signal, bin_s, fs_hz=fs_hz, channel=channel)
+
+
+def _event_counts(run_name: str, bin_s: float, n_bins: int) -> np.ndarray:
+    counts = np.zeros(n_bins)
+    for _, event in get_events(run_name):
+        i = int(event["t_peak"] // bin_s)
+        if 0 <= i < n_bins:
+            counts[i] += 1
+    return counts
+
+
+def render_time_heatmap(run_name: str, total_s: float, settings: Settings) -> None:
+    """Bottom: whole recording folded into rows of fixed duration; click a cell to view it."""
+    with st.container(border=True):
+        section("Activity heatmap", "click a cell to move the viewing window there")
+
+        c1, c2, c3, c4 = st.columns([1.2, 1, 2.2, 0.9])
+        row_label = c1.selectbox("Row length", list(HEATMAP_ROW_CHOICES), index=2, key="hm_row")
+        row_s = HEATMAP_ROW_CHOICES[row_label]
+        cells = c2.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
+        metric_names = list(HEATMAP_METRICS)
+        if run_name not in get_detections():
+            metric_names.remove("Detected events (count)")
+        metric = c3.selectbox("Colour by", metric_names, key="hm_metric")
+        log_color = c4.checkbox("Log scale", value=True, key="hm_log")
+
+        bin_s = row_s / cells
+        kind, channel = HEATMAP_METRICS[metric]
+        npy = get_runs()[run_name]["npy"]
+        n_bins = max(1, int(np.ceil(total_s / bin_s - 1e-9)))
+        if kind == "events":
+            values = _event_counts(run_name, bin_s, n_bins)
+            label = "events"
+        else:
+            values = _cached_peak_to_peak(
+                npy, Path(npy).stat().st_mtime, bin_s, settings.fs_hz, channel
+            )
+            label = "p-p ADC"
+
+        window = st.session_state.get("window")
+        fig = plots.time_heatmap_figure(
+            values, bin_s=bin_s, row_s=row_s, total_s=total_s,
+            window=window, log_color=log_color, colorbar_title=label,
+        )
+        gen = st.session_state.get("_heatmap_chart_gen", 0)
+        key = f"heatmap_chart_{gen}"
+        # Long recordings → many rows; scroll inside a fixed-height box
+        box = {"height": HEATMAP_MAX_HEIGHT} if fig.layout.height > HEATMAP_MAX_HEIGHT else {}
+        with st.container(border=False, **box):
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                key=key,
+                # Callback (not "rerun"): it runs before the overview's range
+                # slider is created, so the window can still be changed.
+                on_select=functools.partial(_on_heatmap_click, key, row_s, bin_s, total_s),
+                selection_mode="points",
+                config={"displayModeBar": False},
+            )
+        st.caption(
+            f"Each row = {row_label}, each cell = {bin_s:g} s · "
+            "dotted frame = current viewing window"
+        )
+
+
+def _on_heatmap_click(key: str, row_s: float, bin_s: float, total_s: float) -> None:
+    """Centre the viewing window (same width) on the clicked heatmap cell."""
+    try:
+        points = st.session_state[key].selection.points
+    except (KeyError, AttributeError):
+        return
+    if not points:
+        return
+    # x = seconds into the row (cell centre), y = row index
+    point = points[0]
+    center = float(point["y"]) * row_s + float(point["x"])
+
+    w0, w1 = st.session_state.get("window") or (0.0, DEFAULT_WINDOW_S)
+    width = min(max(w1 - w0, bin_s), total_s)
+    start = min(max(0.0, center - 0.5 * width), total_s - width)
+    _set_window(start, start + width, total_s, bump_overview=True)
+    # New key clears the stored selection so the same cell can be clicked again
+    st.session_state["_heatmap_chart_gen"] = st.session_state.get("_heatmap_chart_gen", 0) + 1
+
+
 # ---------------------------------------------------------------------------
 # Right column
 # ---------------------------------------------------------------------------
@@ -733,6 +833,7 @@ def main() -> None:
         # Overview (top) → detail zoom (middle).
         start_s, end_s = render_full_recording(signal, run_name, total_s, settings)
         render_window(signal, run_name, start_s, end_s, settings, total_s=total_s)
+        render_time_heatmap(run_name, total_s, settings)
 
     with right:
         render_selected_event(run_name)
