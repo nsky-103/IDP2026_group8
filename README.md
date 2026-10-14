@@ -71,9 +71,11 @@ Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel and whe
    | Condition | Label |
    |---|---|
    | higher than the no-dye level (68.9 counts) | `dyed` |
-   | lower, but an adc1 peak within ±20 ms | `solid_no_dye` (tissue without dye) |
-   | lower and no adc1 peak | `water` |
-   | lower, and adc1 not used (see Part A step 3) | `undecided` |
+   | lower, but confirmed by adc1 (two-channel check below) | `solid_no_dye` (tissue without dye) |
+   | lower and not confirmed | `water` |
+   | lower, and the check is not used in this recording | `undecided` |
+
+   Two-channel check (#11): an adc1 peak within ±20 ms of the top adc2 peak shifted by the recording's channel lag, at least 5% as high as that adc2 peak. The lag differs per recording (adc1 18–33 ms earlier in the 2025 known-volume recordings, 9–14 ms later in the tumour ones) and is measured on the dyed pieces. The height condition keeps small adc1 noise peaks from passing by chance. The chance rate is measured per recording by shifting adc1 by 2–20 s; above 20%, or when adc1 hardly responds (Part A step 3), the check is not used.
 
 4. **Features**: the piece spans from 30 ms before its first peak to 30 ms after its last peak.
    Start, end, duration, number of peaks, max height and area (sum of the positive signal, counts x ms).
