@@ -116,6 +116,8 @@ def build_index(csv_path: str | Path, n_blocks: int = 1024, workers: int | None 
 # ---------------------------------------------------------------- reading
 
 try:
+    if os.environ.get("IDP_NO_PYARROW"):  # set by tools/benchmark_io.py to time the pandas path
+        raise ImportError
     import pyarrow as _pa
     import pyarrow.csv as _pacsv
 except ImportError:  # pandas fallback, about 1.6x slower
