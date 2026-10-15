@@ -112,7 +112,7 @@ def signal_figure(
     fig.update_layout(
         height=int(height),
         margin=dict(l=48, r=20, t=30, b=40),
-        xaxis_title="Time (s) — scroll / pinch to zoom, drag to box-zoom, double-click to reset",
+        xaxis_title="Time (s)",
         yaxis_title="ADC amplitude",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         hovermode="x unified",

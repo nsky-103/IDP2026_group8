@@ -54,8 +54,8 @@ def main() -> None:
     st.set_page_config(page_title="Marginum Signal Viewer", layout="wide")
     style.inject_css()
 
-    header_left, header_right = st.columns([1, 2])
-    header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
+    # header_left, header_right = st.columns([1, 2])
+    # header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
     left, center, right = st.columns([1.15, 3.4, 1.6], gap="medium")
 
     with left:
@@ -75,11 +75,11 @@ def main() -> None:
         st.rerun()
     state.runs()[run]["phase"] = recording.phase  # keep in sync with the live Recording
     total_s = recording.duration_s(settings.fs_hz)
-    header_right.markdown(
-        f'<div class="sv-chip">{html.escape(csv_path.name)} · {style.fmt_time(total_s)}'
-        f' · {recording.phase}</div>',
-        unsafe_allow_html=True,
-    )
+    # header_right.markdown(
+    #     f'<div class="sv-chip">{html.escape(csv_path.name)} · {style.fmt_time(total_s)}'
+    #     f' · {recording.phase}</div>',
+    #     unsafe_allow_html=True,
+    # )
 
     with center:
         if settings.detect_clicked:

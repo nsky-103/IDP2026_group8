@@ -43,17 +43,17 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings: S
             **plots.PLOTLY_ZOOM_CONFIG,
             "modeBarButtonsToAdd": ["zoom2d", "pan2d", "autoScale2d", "resetScale2d"],
         })
-        st.caption("Detail uses on-demand CSV reads (read_window), not a full-rate NPY. "
-                   "Zoom out / Fit all update the black frame on the overview.")
+        # st.caption("Detail uses on-demand CSV reads (read_window), not a full-rate NPY. "
+        #            "Zoom out / Fit all update the black frame on the overview.")
 
-        if detection is not None:
-            with st.expander("Peak stems (optional)", expanded=False):
-                st.plotly_chart(
-                    plots.peaks_overview_figure(detection.events, trace=detection.trace,
-                                                threshold=detection.threshold,
-                                                show_rejected=settings.show_rejected),
-                    width="stretch", key="peaks_stem_chart", config=plots.PLOTLY_ZOOM_CONFIG,
-                )
+        # if detection is not None:
+        #     with st.expander("Peak stems (optional)", expanded=False):
+        #         st.plotly_chart(
+        #             plots.peaks_overview_figure(detection.events, trace=detection.trace,
+        #                                         threshold=detection.threshold,
+        #                                         show_rejected=settings.show_rejected),
+        #             width="stretch", key="peaks_stem_chart", config=plots.PLOTLY_ZOOM_CONFIG,
+        #         )
 
 
 def _zoom_buttons(total_s: float) -> None:
