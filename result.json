@@ -1,0 +1,354 @@
+{
+ "computer": {
+  "os": "Darwin 25.6.0",
+  "python": "3.12.13",
+  "cpu_cores": 8,
+  "ram_gb": 25.8,
+  "workers": 4,
+  "numba": true,
+  "pyarrow": true,
+  "file": "1. LONG_suction_HIGH_CONC_4ml_(and_3_times_resuction).csv",
+  "file_gb": 7.59
+ },
+ "read the whole file": 1.231,
+ "first viewer (csv module, 1 process)": 479.509,
+ "pandas chunks (1 process, IDP standalone)": 33.426,
+ "rough preview (no index)": 0.178,
+ "row index": 3.74,
+ "1 kHz summary (numba)": 4.613,
+ "zoomed 10 s window (exact samples)": 0.023,
+ "zoomed 60 s window (exact samples)": 0.087,
+ "Part A: clean (median + SG + ALS, sigma)": 1.587,
+ "Part B: pieces and labels": 1.854,
+ "first open": 12.484,
+ "second open (cache)": 1.961,
+ "peak_memory_mb": {
+  "main": 3561.947136,
+  "worker": 256.622592
+ },
+ "summary_matches_csv": true,
+ "1 kHz summary (pandas, until last week)": 14.93,
+ "speedup_summary": 3.2363957604240836,
+ "recordings": [
+  {
+   "file": "Big pieces [15-high] [15-middle] [15-low] [15-ze",
+   "minutes": 5.6,
+   "pieces": 69,
+   "dyed": 41,
+   "solid_no_dye": 26,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "1. LONG_suction_HIGH_CONC_4ml_(and_3_times_resuc",
+   "minutes": 281.2,
+   "pieces": 83,
+   "dyed": 45,
+   "solid_no_dye": 11,
+   "water": 27,
+   "undecided": 0,
+   "seconds": 2.0
+  },
+  {
+   "file": "2. suction_HIGH_CONC_4ml_(and_2_times_resuction)",
+   "minutes": 13.3,
+   "pieces": 41,
+   "dyed": 39,
+   "solid_no_dye": 0,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.1
+  },
+  {
+   "file": "3. suction_HIGH_CONC_2ml_(and_2_times_resuction.",
+   "minutes": 10.3,
+   "pieces": 26,
+   "dyed": 19,
+   "solid_no_dye": 1,
+   "water": 6,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "4. suction_HIGH_CONC_1ml_(and_2_times_resuction)",
+   "minutes": 7.1,
+   "pieces": 22,
+   "dyed": 13,
+   "solid_no_dye": 2,
+   "water": 7,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "5. suction_HIGH_CONC_1ml_and_no_resuction.csv",
+   "minutes": 1.2,
+   "pieces": 10,
+   "dyed": 10,
+   "solid_no_dye": 0,
+   "water": 0,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "6. suction_MIDDLE_CONC_3ml_(and_no_resuction).cs",
+   "minutes": 2.1,
+   "pieces": 17,
+   "dyed": 15,
+   "solid_no_dye": 0,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "7. suction_MIDDLE_CONC_2ml_(and_1_times_resuctio",
+   "minutes": 4.9,
+   "pieces": 24,
+   "dyed": 14,
+   "solid_no_dye": 2,
+   "water": 8,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "8. suction_MIDDLE_CONC_1ml_(and_no_resuction).cs",
+   "minutes": 1.1,
+   "pieces": 14,
+   "dyed": 13,
+   "solid_no_dye": 0,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "9. suction_MIDDLE_CONC_1ml_(and_no_resuction (2)",
+   "minutes": 1.2,
+   "pieces": 9,
+   "dyed": 8,
+   "solid_no_dye": 0,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "GOOD DATA 2high middle low zero (big pieces)",
+   "minutes": 7.3,
+   "pieces": 54,
+   "dyed": 35,
+   "solid_no_dye": 11,
+   "water": 8,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "GOOD DATA 2high middle low zero (small pieces)",
+   "minutes": 7.7,
+   "pieces": 66,
+   "dyed": 28,
+   "solid_no_dye": 23,
+   "water": 15,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "good data hig middle low zero",
+   "minutes": 6.1,
+   "pieces": 48,
+   "dyed": 32,
+   "solid_no_dye": 12,
+   "water": 4,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "good data hig middle low zero [small pieces]",
+   "minutes": 6.6,
+   "pieces": 62,
+   "dyed": 28,
+   "solid_no_dye": 22,
+   "water": 12,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "session 1 test different conc",
+   "minutes": 3.1,
+   "pieces": 22,
+   "dyed": 10,
+   "solid_no_dye": 5,
+   "water": 7,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "session 1 test high conc",
+   "minutes": 3.3,
+   "pieces": 23,
+   "dyed": 14,
+   "solid_no_dye": 1,
+   "water": 8,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "tumor test",
+   "minutes": 7.7,
+   "pieces": 50,
+   "dyed": 18,
+   "solid_no_dye": 22,
+   "water": 10,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "tumor test 2",
+   "minutes": 7.5,
+   "pieces": 52,
+   "dyed": 22,
+   "solid_no_dye": 16,
+   "water": 14,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "2Gb signal.csv",
+   "minutes": 78.8,
+   "pieces": 207,
+   "dyed": 86,
+   "solid_no_dye": 0,
+   "water": 0,
+   "undecided": 121,
+   "seconds": 0.3
+  },
+  {
+   "file": "IDP_signal_example_[sami_dmitry_september2023].c",
+   "minutes": 2.8,
+   "pieces": 31,
+   "dyed": 7,
+   "solid_no_dye": 0,
+   "water": 0,
+   "undecided": 24,
+   "seconds": 0.0
+  },
+  {
+   "file": "Only re-suction peaks.csv",
+   "minutes": 5.0,
+   "pieces": 62,
+   "dyed": 47,
+   "solid_no_dye": 0,
+   "water": 0,
+   "undecided": 15,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_1",
+   "minutes": 2.9,
+   "pieces": 34,
+   "dyed": 21,
+   "solid_no_dye": 3,
+   "water": 10,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_1_resuc",
+   "minutes": 1.8,
+   "pieces": 13,
+   "dyed": 10,
+   "solid_no_dye": 2,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_2",
+   "minutes": 2.0,
+   "pieces": 21,
+   "dyed": 19,
+   "solid_no_dye": 0,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_2_resuc",
+   "minutes": 1.9,
+   "pieces": 22,
+   "dyed": 19,
+   "solid_no_dye": 2,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_3",
+   "minutes": 1.9,
+   "pieces": 22,
+   "dyed": 17,
+   "solid_no_dye": 4,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_1gr_3_resuc",
+   "minutes": 1.8,
+   "pieces": 26,
+   "dyed": 22,
+   "solid_no_dye": 3,
+   "water": 1,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_2gr",
+   "minutes": 3.0,
+   "pieces": 41,
+   "dyed": 38,
+   "solid_no_dye": 0,
+   "water": 3,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_2gr_resuc",
+   "minutes": 2.9,
+   "pieces": 18,
+   "dyed": 15,
+   "solid_no_dye": 3,
+   "water": 0,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_3gr",
+   "minutes": 4.1,
+   "pieces": 57,
+   "dyed": 53,
+   "solid_no_dye": 2,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "high_3gr_resuc",
+   "minutes": 2.9,
+   "pieces": 31,
+   "dyed": 27,
+   "solid_no_dye": 2,
+   "water": 2,
+   "undecided": 0,
+   "seconds": 0.0
+  },
+  {
+   "file": "just water.csv",
+   "minutes": 3.9,
+   "pieces": 39,
+   "dyed": 1,
+   "solid_no_dye": 0,
+   "water": 0,
+   "undecided": 38,
+   "seconds": 0.0
+  }
+ ]
+}
