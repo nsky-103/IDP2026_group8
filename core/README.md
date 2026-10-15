@@ -10,7 +10,6 @@ Code shared by the visualizer and scripts. No UI code here.
 | Byte offset ↔ row number index | `build_index(csv)` | 3 s |
 | Exact samples of a zoomed window | `read_window(idx, start_s, end_s)` | 10 s: 0.04 s, 60 s: 0.13 s |
 | 1 kHz mean / min / max of the whole file | `summarize(idx)` | 4.2 s with numba (7.9 s pyarrow, 11 s pandas); 3.6 s with 8 workers |
-| Full-rate (N, 2) int16 `.npy` (optional) | `convert_to_npy(csv, idx, out)` | 12 s (pandas; faster with pyarrow, not re-measured) |
 
 Measured on a MacBook (8 cores) with the file already read once. Peak memory about 2.2 GB in total
 (0.85 GB main process + about 0.35 GB per worker), well within a 16 GB laptop.
@@ -31,11 +30,7 @@ Suggested order in the app:
 2. `build_index` → from now on, zooming reads exact samples with `read_window`
 3. `summarize` in the background → replace the overview with the exact one; run analysis on the 1 kHz data
 
-`convert_to_npy` writes the same format as `visualizer/signal_io.convert_csv_to_npy`, so the
-existing `open_signal` can read it. It is only needed if a full-rate copy is wanted; `read_window`
-already gives full-rate samples for any window.
-
-Checked against `pandas.read_csv` of the whole file: row count, converted values, random windows,
+Checked against `pandas.read_csv` of the whole file: row count, parsed values, random windows,
 first/last rows and times all match, for both `\r\n` and `\n` line endings.
 
 Notes:

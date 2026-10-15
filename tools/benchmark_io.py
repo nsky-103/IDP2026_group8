@@ -1,16 +1,14 @@
 """Measure how fast core.fast_io handles a recording on this computer.
 
-    python tools/benchmark_io.py PATH_TO_CSV [--workers 4] [--out DIR]
+    python tools/benchmark_io.py PATH_TO_CSV [--workers 4]
 
-Prints the time of each step and the peak memory, then checks that the converted
-.npy matches the CSV at a few random places. The .npy goes to --out (default: a
-temporary folder), never next to the measurement data.
+Prints the time of each step and the peak memory, then checks that the 1 kHz
+summary matches the CSV at a few random places.
 """
 from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -43,13 +41,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("csv", type=Path)
     ap.add_argument("--workers", type=int, default=fast_io.default_workers())
-    ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--skip-npy", action="store_true", help="only build the 1 kHz summary")
     args = ap.parse_args()
-
-    out_dir = args.out or Path(tempfile.mkdtemp(prefix="fast_io_"))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    npy = out_dir / (args.csv.stem + ".npy")
     print(f"{args.csv.name}: {args.csv.stat().st_size / 1e9:.2f} GB, {args.workers} workers\n")
 
     pv = step("preview without index", lambda: fast_io.preview(args.csv))
@@ -61,8 +53,6 @@ def main() -> None:
     for seconds in (10, 60):
         step(f"read {seconds} s window", lambda s=seconds: fast_io.read_window(idx, mid, mid + s))
     summ = step("1 kHz summary (mean/min/max)", lambda: fast_io.summarize(idx, workers=args.workers))
-    if not args.skip_npy:
-        step("full-rate .npy (optional)", lambda: fast_io.convert_to_npy(args.csv, idx, npy, workers=args.workers))
 
     own, child = peak_memory_mb()
     print(f"\n  peak memory: main {own:.0f} MB, largest worker {child:.0f} MB "
@@ -75,12 +65,6 @@ def main() -> None:
         ok &= np.allclose(summ["mean"][g: g + 100], raw.mean(1), atol=1e-3)
         ok &= np.array_equal(summ["min"][g: g + 100], raw.min(1)) and np.array_equal(summ["max"][g: g + 100], raw.max(1))
     print(f"  summary vs the CSV at 5 random places: {'OK' if ok else 'MISMATCH'}")
-    if not args.skip_npy:
-        arr = np.load(npy, mmap_mode="r")
-        ok = arr.shape == (idx.n_rows, 2)
-        for r in rng.integers(0, idx.n_rows - 1000, 5):
-            ok &= np.array_equal(arr[r: r + 1000], fast_io.read_rows(idx, int(r), int(r) + 1000))
-        print(f"  .npy vs the CSV at 5 random places: {'OK' if ok else 'MISMATCH'}  ({npy})")
 
 
 if __name__ == "__main__":

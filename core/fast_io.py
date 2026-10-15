@@ -9,8 +9,6 @@ Four building blocks, meant to be used in this order so the user never waits:
 
 ``summarize`` gives the 1 kHz mean/min/max for the exact overview and for analysis.
 Zoomed windows come straight from the CSV via ``read_window``, so a full-rate copy is not needed.
-If one is wanted anyway, ``convert_to_npy`` writes the same (N, 2) int16 ``.npy`` file as
-``signal_io.convert_csv_to_npy`` (~12 s for 7.6 GB with 4 workers).
 
 CSV blocks are parsed with pyarrow when it is installed (about 1.6x faster than pandas,
 identical result), otherwise with pandas. With numba installed, ``summarize`` parses and
@@ -339,38 +337,3 @@ def summarize(index: CsvIndex, factor: int = 50, workers: int | None = None,
                 partial_callback(result)
                 last = time.perf_counter()
     return result
-
-
-# ---------------------------------------------------------------- conversion
-
-def _convert_block(args: tuple[str, str, int, int, int, int]) -> int:
-    csv_path, npy_path, a, b, row_start, n_expected = args
-    data = _parse(_read_bytes(Path(csv_path), a, b))
-    if len(data) != n_expected:
-        raise ValueError(f"Block at byte {a}: parsed {len(data)} rows, expected {n_expected}")
-    out = np.load(npy_path, mmap_mode="r+")
-    out[row_start: row_start + len(data)] = data
-    del out  # the OS writes the pages back; an explicit flush per block is much slower
-    return len(data)
-
-
-def convert_to_npy(csv_path: str | Path, index: CsvIndex | None = None, npy_path: str | Path | None = None,
-                   workers: int | None = None, progress_callback=None) -> Path:
-    """Parallel CSV -> (N, 2) int16 .npy, the same format as signal_io.convert_csv_to_npy."""
-    csv_path = Path(csv_path)
-    index = index or build_index(csv_path, workers=workers)
-    npy_path = Path(npy_path) if npy_path else csv_path.with_suffix(".npy")
-
-    out = np.lib.format.open_memmap(npy_path, mode="w+", dtype=DTYPE, shape=(index.n_rows, 2))
-    del out
-
-    counts = np.diff(np.append(index.row_starts, index.n_rows))
-    jobs = [(str(csv_path), str(npy_path), int(a), int(b), int(r), int(c))
-            for a, b, r, c in zip(index.byte_starts, index.byte_ends, index.row_starts, counts)]
-    done = 0
-    with ProcessPoolExecutor(workers or default_workers()) as ex:
-        for n in ex.map(_convert_block, jobs, chunksize=4):
-            done += n
-            if progress_callback:
-                progress_callback(done / index.n_rows)
-    return npy_path

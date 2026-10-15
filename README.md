@@ -97,7 +97,7 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
 | Part | Files | Who |
 |---|---|---|
 | Visualizer app | `visualizer/` | tut-morimoto, KeitoTsubaki (see git history) |
-| Fast CSV access: row index, zoomed windows, 1 kHz summary, parallel `.npy` conversion | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
+| Fast CSV access: row index, zoomed windows, 1 kHz summary | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
 | Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
 | Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features | `core/detection.py` | Sora |
 | Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
