@@ -24,10 +24,12 @@ recording's channel lag, at least AMP_RATIO x as high as that adc2 peak.
 NO_DYE_LEVEL is the top 0.1% of sub-peak heights in two water-only recordings
 (rule chosen on the Big pieces reference file).
 
-Author: Sora.
+Author: Sora, except the two-thread peak search marked below (Unmona's idea).
 """
 
 from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -101,10 +103,17 @@ def find_pieces(clean: dict, k: float = K_SIGMA, gap_s: float = GAP_S,
     n = len(a2)
     edge = int(EDGE_S * fs)
 
-    p2 = detect_peaks(a2, clean["sigma_adc2"], fs, k)
-    p2 = p2[(p2 > edge) & (p2 < n - edge)]
     use_adc1 = clean.get("adc1_usable", True)
-    p1 = detect_peaks(a1, clean["sigma_adc1"], fs, k) if use_adc1 else np.empty(0, np.int64)
+    # ---- Idea: Unmona (proposals/fast_core.py on branch speedup-part-a-b: detect_both) --------------
+    # adc1 and adc2 are searched in two threads at once (find_peaks releases the GIL), same result.
+    # 4.7 h recording: 1.72 s -> 1.02 s.
+    with ThreadPoolExecutor(2) as ex:
+        f2 = ex.submit(detect_peaks, a2, clean["sigma_adc2"], fs, k)
+        f1 = ex.submit(detect_peaks, a1, clean["sigma_adc1"], fs, k) if use_adc1 else None
+        p2 = f2.result()
+        p1 = f1.result() if f1 is not None else np.empty(0, np.int64)
+    # ---- end of Unmona's idea -----------------------------------------------------------------
+    p2 = p2[(p2 > edge) & (p2 < n - edge)]
     peaks = {"adc2": p2 / fs, "adc1": p1 / fs,
              "two_channel": {"used": False, "lag_s": 0.0, "chance": float("nan")}}
     if len(p2) == 0:
