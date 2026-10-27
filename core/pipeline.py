@@ -2,6 +2,7 @@
 
     result = analyse("recording.csv")
     result["pieces"]     # one row per aspirated piece (see detection.py)
+    result["amount"]     # total area of the non-water pieces and their number (detection.amount)
     result["timings"]    # seconds per step
 
 The row index and the 1 kHz summary are saved in a cache folder the first time, so opening
@@ -143,4 +144,4 @@ def analyse(csv_path: str | Path, cache_root: Path | None = DEFAULT_CACHE, worke
     timings["Part B: pieces"] = time.perf_counter() - t
 
     return {"index": index, "summary": summary, "clean": clean, "pieces": pieces, "peaks": peaks,
-            "from_cache": from_cache, "timings": timings}
+            "amount": detection.amount(pieces), "from_cache": from_cache, "timings": timings}
