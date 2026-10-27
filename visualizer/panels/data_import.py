@@ -152,9 +152,14 @@ def _load_progress_fragment() -> None:
                 prev = state.runs().get(source.stem, {}).get("phase")
                 phase = "ready" if job.status == "ready" else "preview"
                 state.register_run(source, phase)
-                # Index milestone: duration may jump — reset viewing window (#21).
+                # Index milestone: duration may jump — keep window if it still fits (#30).
                 if job.milestone == "index":
-                    state.reset_view()
+                    rec = load_jobs.get_recording(source)
+                    total_s = rec.duration_s() if rec is not None else 0.0
+                    if total_s > 0:
+                        state.keep_or_reset_view(total_s)
+                    else:
+                        state.reset_view()
                     job.milestone = None
                     need_rerun = True
                 elif job.milestone == "preview":

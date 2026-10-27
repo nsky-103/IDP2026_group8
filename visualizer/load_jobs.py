@@ -166,7 +166,7 @@ def _run_job(job: LoadJob) -> None:
             path=csv_path, index=index, summary=None, preview=preview,
             phase="preview",
         )
-        # Duration may jump from estimate → exact; UI should reset the window (#21).
+        # Duration may jump from estimate → exact; UI keeps the window if it still fits (#30).
         _publish(job, rec, status="indexing", progress=0.20,
                  message="Building 1 kHz summary…", milestone="index")
 
@@ -177,16 +177,13 @@ def _run_job(job: LoadJob) -> None:
             job.message = f"Building 1 kHz summary… {fraction:.0%}"
 
         def on_partial(partial: dict) -> None:
-            # Copy arrays so the worker can keep filling the live buffers.
-            snap = {
-                "mean": np.array(partial["mean"], copy=True),
-                "min": np.array(partial["min"], copy=True),
-                "max": np.array(partial["max"], copy=True),
-                "fs_hz": float(partial["fs_hz"]),
-            }
+            # Share live arrays (no 270 MB copy); publish finished length only (#30).
+            mean = partial["mean"]
+            valid = np.isfinite(mean[:, 0])
+            n_done = int(np.where(valid)[0][-1]) + 1 if np.any(valid) else 0
             cur = signal_io.Recording(
-                path=csv_path, index=index, summary=snap, preview=preview,
-                phase="preview",
+                path=csv_path, index=index, summary=partial, preview=preview,
+                phase="preview", summary_n_done=n_done,
             )
             set_recording(csv_path, cur)
 

@@ -83,6 +83,24 @@ def reset_view() -> None:
         ss.pop(key, None)
 
 
+def keep_or_reset_view(total_s: float) -> None:
+    """At index milestone (#30): keep the preview window if it still fits the exact length.
+
+    Only reset to the default 0–30 s range when there is no window or it no longer fits.
+    """
+    total_s = float(total_s)
+    w = ss.get("window")
+    if w is None:
+        reset_view()
+        return
+    start_s, end_s = float(w[0]), float(w[1])
+    if start_s < 0 or end_s > total_s or end_s <= start_s:
+        reset_view()
+        return
+    # Keep selection; clamp via set_window so slider stays consistent.
+    set_window(start_s, end_s, total_s)
+
+
 # ---- viewing window ---------------------------------------------------------
 
 def window(total_s: float) -> viewport.Window:
