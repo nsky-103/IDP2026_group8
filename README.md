@@ -80,7 +80,12 @@ Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel and whe
 4. **Features**: the piece spans from 30 ms before its first peak to 30 ms after its last peak.
    Start, end, duration, number of peaks, max height and area (sum of the positive signal, counts x ms).
 
-Output: a table with one row per piece, and the peak times for plotting.
+5. **Amount**: `amount()` adds up the area of the pieces that are not water, over the whole recording
+   or over a time range (pieces that start in it). The area is the main measure for the amount of
+   tissue; the number of pieces is given for reference (it stops growing when pieces merge in dense
+   suctions). No ml value yet: the area per ml depends on the dye concentration and on re-suction.
+
+Output: a table with one row per piece, the peak times for plotting, and the amount measures.
 
 | Step | First open | Next open |
 |---|---|---|
@@ -99,7 +104,7 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
 | Visualizer app | `visualizer/` | tut-morimoto, KeitoTsubaki (see git history) |
 | Fast CSV access: row index, zoomed windows, 1 kHz summary | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
 | Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
-| Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features | `core/detection.py` | Sora |
+| Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features, amount (total area) | `core/detection.py` | Sora |
 | Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
 | Dropping idle blocks before sigma (#3) | `core/preprocessing.py` (marked inside `quiet_sigma`) | Sora |
 | adc1 response check, `undecided` label (#4) | `core/preprocessing.py`, `core/detection.py` | Sora |

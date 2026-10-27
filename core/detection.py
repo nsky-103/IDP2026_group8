@@ -11,6 +11,7 @@
    - if adc1 does not respond (clean["adc1_usable"] False, as in the 2023 test signals) or the
      check passes too often by chance in this recording, dim pieces are "undecided" instead
 4. Features per piece: start, end, duration, number of peaks, max height, area.
+5. Amount (amount()): total area of the pieces that are not water, over the recording or a time range.
 
 Two-channel check (GitHub #11): an adc1 peak within +-PAIR_S of the top adc2 peak shifted by the
 recording's channel lag, at least AMP_RATIO x as high as that adc2 peak.
@@ -147,3 +148,20 @@ def find_pieces(clean: dict, k: float = K_SIGMA, gap_s: float = GAP_S,
                       else "solid_no_dye" if confirmed[i] else "water"),
         })
     return pd.DataFrame(rows, columns=COLUMNS), peaks
+
+
+def amount(pieces: pd.DataFrame, t0: float | None = None, t1: float | None = None) -> dict:
+    """Amount measures over the recording, or over the pieces that start in [t0, t1) seconds.
+
+    area: total area of the pieces that are not water (counts x ms). The main measure: the
+    fluorescence integrated over time should follow the amount of tissue that passed. A piece
+    count stops following it when pieces merge in dense suctions (known volumes: 4 ml).
+    Re-suction and the dye concentration change the area per ml, so no ml estimate here
+    (05_信号特性の実測/README §33-§35). Undecided pieces are included.
+    """
+    p = pieces[pieces["label"] != "water"]
+    if t0 is not None:
+        p = p[p["start_s"] >= t0]
+    if t1 is not None:
+        p = p[p["start_s"] < t1]
+    return {"area": float(p["area"].sum()), "pieces": int(len(p)), "dyed": int((p["label"] == "dyed").sum())}
