@@ -86,6 +86,8 @@ class Recording:
     from_cache: bool = False
     estimated_n_rows: int | None = None
     clean: dict | None = None  # Part A output when precomputed (#17)
+    # Finished 1 kHz groups while summarize is still running (#30); None = use isfinite(mean).
+    summary_n_done: int | None = None
     _window_cache: OrderedDict = field(default_factory=OrderedDict, repr=False, compare=False)
 
     @property
@@ -111,6 +113,19 @@ class Recording:
     def duration_s(self, fs_hz: float | None = None) -> float:
         return self.n_rows / float(fs_hz or self.fs_hz)
 
+    def _summary_finished_len(self) -> int:
+        """How many 1 kHz groups are finished (partial summarize leaves the rest as NaN/±32767)."""
+        if self.summary is None:
+            return 0
+        mean = np.asarray(self.summary["mean"])
+        n = len(mean)
+        if self.summary_n_done is not None:
+            return max(0, min(int(self.summary_n_done), n))
+        valid = np.isfinite(mean[:, 0])
+        if not np.any(valid):
+            return 0
+        return int(np.where(valid)[0][-1]) + 1
+
     def overview_series(
         self, max_points: int = 4_000
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None, bool]:
@@ -121,9 +136,8 @@ class Recording:
             hi = np.asarray(self.summary["max"])
             fs = self.summary_fs_hz
             n = len(mean)
-            valid = np.isfinite(mean[:, 0])
-            if np.any(valid):
-                last = int(np.where(valid)[0][-1]) + 1
+            last = self._summary_finished_len()
+            if last > 0:
                 mean_f, lo_f, hi_f = mean[:last], lo[:last], hi[:last]
                 n_out = max(1, min(max_points, last))
                 starts = np.linspace(0, last, n_out + 1, dtype=np.int64)[:-1]
@@ -163,17 +177,63 @@ class Recording:
         s2 = 0.5 * (s2_min + s2_max)
         return t, s1, s2, s1_min, s1_max, s2_min, s2_max, True
 
+    def _preview_window(
+        self, start_s: float, end_s: float, max_points: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Detail from rough preview min/max inside the window (issue #30, before index)."""
+        if self.preview is None:
+            raise RuntimeError("Preview not available yet for detail window")
+        pv = self.preview
+        t_all = np.asarray(pv["t"], dtype=np.float64)
+        if len(t_all) == 0:
+            raise RuntimeError("Preview is empty")
+        mask = (t_all >= float(start_s)) & (t_all <= float(end_s))
+        if not np.any(mask):
+            # Nearest preview sample if the window falls between sparse points.
+            i = int(np.clip(np.searchsorted(t_all, 0.5 * (start_s + end_s)), 0, len(t_all) - 1))
+            mask = np.zeros(len(t_all), dtype=bool)
+            mask[i] = True
+        t_sel = t_all[mask]
+        s1_lo = np.asarray(pv["adc1_min"], dtype=np.float64)[mask]
+        s1_hi = np.asarray(pv["adc1_max"], dtype=np.float64)[mask]
+        s2_lo = np.asarray(pv["adc2_min"], dtype=np.float64)[mask]
+        s2_hi = np.asarray(pv["adc2_max"], dtype=np.float64)[mask]
+        n = len(t_sel)
+        n_keep = max(1, min(n, max(1, max_points // 2)))
+        if n_keep < n:
+            idx = np.linspace(0, n - 1, n_keep, dtype=np.int64)
+            t_sel = t_sel[idx]
+            s1_lo, s1_hi = s1_lo[idx], s1_hi[idx]
+            s2_lo, s2_hi = s2_lo[idx], s2_hi[idx]
+        t = np.empty(2 * len(t_sel))
+        out1 = np.empty(2 * len(t_sel))
+        out2 = np.empty(2 * len(t_sel))
+        t[0::2] = t_sel
+        t[1::2] = t_sel
+        out1[0::2] = s1_hi
+        out1[1::2] = s1_lo
+        out2[0::2] = s2_hi
+        out2[1::2] = s2_lo
+        return t, out1, out2
+
     def _envelope_window(
         self, start_s: float, end_s: float, max_points: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Min/max envelope from 1 kHz summary for long detail windows (#23)."""
+        """Min/max envelope from 1 kHz summary for long detail windows (#23, #30)."""
         if self.summary is None:
             raise RuntimeError("1 kHz summary required for long-window envelope")
         fs = self.summary_fs_hz
         lo = np.asarray(self.summary["min"])
         hi = np.asarray(self.summary["max"])
+        # Partial summarize leaves unfinished groups at ±32767; mask like overview_series (#30).
+        last = self._summary_finished_len()
+        if last <= 0:
+            return self._preview_window(start_s, end_s, max_points)
+        lo, hi = lo[:last], hi[:last]
         i0 = max(0, int(start_s * fs))
-        i1 = min(len(lo), max(i0 + 1, int(end_s * fs)))
+        i1 = min(last, max(i0 + 1, int(end_s * fs)))
+        if i0 >= last:
+            return self._preview_window(start_s, end_s, max_points)
         seg_lo, seg_hi = lo[i0:i1], hi[i0:i1]
         n = len(seg_lo)
         n_bins = min(max_points // 2, n)  # each bin -> two points (hi then lo zig-zag) conceptually
@@ -184,14 +244,8 @@ class Recording:
         s1_hi = np.maximum.reduceat(seg_hi[:, 0], starts)
         s2_lo = np.minimum.reduceat(seg_lo[:, 1], starts)
         s2_hi = np.maximum.reduceat(seg_hi[:, 1], starts)
-        # Interleave hi/lo so Plotly line shows the envelope thickness roughly
         edges = np.append(starts, n)
         t_centers = (i0 + 0.5 * (edges[:-1] + edges[1:])) / fs
-        # Return mid of envelope as the line (detail also gets band via caller if needed);
-        # for a single line that preserves peak height, plot max for positive-going fluorescence.
-        s1 = s1_hi.astype(np.float64)
-        s2 = s2_hi.astype(np.float64)
-        # Zigzag: for each bin emit hi then lo so LTTB-less plot keeps peaks
         t = np.empty(2 * len(t_centers))
         out1 = np.empty(2 * len(t_centers))
         out2 = np.empty(2 * len(t_centers))
@@ -211,8 +265,14 @@ class Recording:
         max_points: int = 20_000,
         method: str = "lttb",
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Window for detail: short = CSV read_window; long = 1 kHz envelope (#23)."""
-        key = (round(start_s, 4), round(end_s, 4), method, int(max_points), self.phase)
+        """Window for detail: short = CSV read_window; long = 1 kHz envelope (#23).
+
+        Before the row index exists, fall back to the rough preview (#30).
+        """
+        key = (
+            round(start_s, 4), round(end_s, 4), method, int(max_points),
+            self.phase, self.summary_n_done,
+        )
         if key in self._window_cache:
             self._window_cache.move_to_end(key)
             return self._window_cache[key]
@@ -220,9 +280,9 @@ class Recording:
         width = float(end_s) - float(start_s)
         if width > LONG_WINDOW_S and self.summary is not None:
             result = self._envelope_window(start_s, end_s, max_points)
+        elif self.index is None:
+            result = self._preview_window(start_s, end_s, max_points)
         else:
-            if self.index is None:
-                raise RuntimeError("Row index not ready yet for a short detail window")
             _ensure_core_on_path()
             from core import fast_io
             from lttb import downsample_lttb
