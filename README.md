@@ -80,7 +80,7 @@ Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel and whe
 4. **Features**: the piece spans from 30 ms before its first peak to 30 ms after its last peak.
    Start, end, duration, number of peaks, max height and area (sum of the positive signal, counts x ms).
 
-5. **Amount**: `amount()` adds up the area of the pieces that are not water, over the whole recording
+5. **Amount**: `amount()` adds up the area of the `dyed` and `solid_no_dye` pieces, over the whole recording
    or over a time range (pieces that start in it). The area is the main measure for the amount of
    tissue; the number of pieces is given for reference (it stops growing when pieces merge in dense
    suctions). No ml value yet: the area per ml depends on the dye concentration and on re-suction.

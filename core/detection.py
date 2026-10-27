@@ -11,7 +11,7 @@
    - if adc1 does not respond (clean["adc1_usable"] False, as in the 2023 test signals) or the
      check passes too often by chance in this recording, dim pieces are "undecided" instead
 4. Features per piece: start, end, duration, number of peaks, max height, area.
-5. Amount (amount()): total area of the pieces that are not water, over the recording or a time range.
+5. Amount (amount()): total area of the dyed and solid_no_dye pieces, over the recording or a time range.
 
 Two-channel check (GitHub #11): an adc1 peak within +-PAIR_S of the top adc2 peak shifted by the
 recording's channel lag, at least AMP_RATIO x as high as that adc2 peak.
@@ -48,6 +48,8 @@ LAG_SEARCH_S = 0.150    # nearest adc1 peak within this of a dyed piece's top ->
 MIN_LAG_PIECES = 5      # fewer lag samples: assume no lag
 MAX_CHANCE = 0.20       # chance rate above this: the check is not used in this recording
 CHANCE_SHIFTS = 50
+
+VALID_LABELS = ("dyed", "solid_no_dye")   # pieces counted in amount()
 
 COLUMNS = ["start_s", "end_s", "duration_s", "n_peaks", "max_height", "area", "confirmed", "label"]
 
@@ -153,13 +155,14 @@ def find_pieces(clean: dict, k: float = K_SIGMA, gap_s: float = GAP_S,
 def amount(pieces: pd.DataFrame, t0: float | None = None, t1: float | None = None) -> dict:
     """Amount measures over the recording, or over the pieces that start in [t0, t1) seconds.
 
-    area: total area of the pieces that are not water (counts x ms). The main measure: the
+    area: total area of the valid pieces, dyed and solid_no_dye (counts x ms). The main measure: the
     fluorescence integrated over time should follow the amount of tissue that passed. A piece
     count stops following it when pieces merge in dense suctions (known volumes: 4 ml).
     Re-suction and the dye concentration change the area per ml, so no ml estimate here
-    (05_信号特性の実測/README §33-§35). Undecided pieces are included.
+    (05_信号特性の実測/README §33-§35). Undecided pieces (dim pieces in recordings where adc1
+    does not respond) may be water, so they are left out, as in the visualizer's VALID_LABELS.
     """
-    p = pieces[pieces["label"] != "water"]
+    p = pieces[pieces["label"].isin(VALID_LABELS)]
     if t0 is not None:
         p = p[p["start_s"] >= t0]
     if t1 is not None:
