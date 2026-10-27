@@ -2,7 +2,7 @@
 
     result = analyse("recording.csv")
     result["pieces"]     # one row per aspirated piece (see detection.py)
-    result["amount"]     # total area of the non-water pieces and their number (detection.amount)
+    result["amount"]     # total area of the dyed and solid_no_dye pieces and their number (detection.amount)
     result["timings"]    # seconds per step
 
 The row index and the 1 kHz summary are saved in a cache folder the first time, so opening
