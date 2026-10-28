@@ -50,10 +50,10 @@ function setUp(root) {
     }
     const dt = toTime(s, x) - toTime(s, s.drag.x0);
     const [a0, b0] = s.drag.win0;
-    const { total, min_width: minW } = s.data;
+    const { total, min_width: minW, max_width: maxW } = s.data;
     if (s.drag.mode === "move") s.win = shiftInside(a0 + dt, b0 + dt, total);
-    else if (s.drag.mode === "start") s.win = [clamp(a0 + dt, 0, b0 - minW), b0];
-    else s.win = [a0, clamp(b0 + dt, a0 + minW, total)];
+    else if (s.drag.mode === "start") s.win = [clamp(a0 + dt, Math.max(0, b0 - maxW), b0 - minW), b0];
+    else s.win = [a0, clamp(b0 + dt, a0 + minW, Math.min(total, a0 + maxW))];
     draw(s);
   });
   const finish = () => {
