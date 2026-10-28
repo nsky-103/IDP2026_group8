@@ -24,6 +24,7 @@ from detectors import Detection
 
 DEFAULT_WINDOW_S = 5.0
 SLIDER_KEY = "overview_size_slider"  # window width (s); the frame sets the position
+SLIDER_STEP_S = 0.1  # fixed step, so round widths such as the 5 s default land exactly
 _VIEW_KEYS = ["window", "selected_event", SLIDER_KEY,
               "_pending_slider_from_window", "_overview_slider_live"]
 
@@ -125,7 +126,9 @@ def sync_slider(total_s: float) -> viewport.Window:
     if ss.pop("_pending_slider_from_window", False) or SLIDER_KEY not in ss:
         ss[SLIDER_KEY] = _width(w)
         return w
-    if round(float(ss[SLIDER_KEY]), 4) != _width(w):  # the user moved the slider: keep the centre
+    # The slider snaps a width set by dragging the frame to its step; only a bigger change
+    # means the user moved the slider. Then keep the centre.
+    if abs(float(ss[SLIDER_KEY]) - _width(w)) > 0.5 * SLIDER_STEP_S:
         set_window(*viewport.centred(0.5 * (w[0] + w[1]), float(ss[SLIDER_KEY]), total_s), total_s)
     return ss["window"]
 

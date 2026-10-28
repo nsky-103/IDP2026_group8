@@ -68,7 +68,7 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings: S
         row.markdown("Window size (s)", width="content")
         row.slider(
             "Window size (s)", min_value=viewport.MIN_WIDTH_S, max_value=float(total_s),
-            step=max(float(total_s) / 2000.0, 0.01), key=state.SLIDER_KEY, format="%.2f",
+            step=state.SLIDER_STEP_S, key=state.SLIDER_KEY, format="%.2f",
             label_visibility="collapsed",
             # help="Width of the frame, kept centred. Drag the frame on the chart to move it.",
         )
