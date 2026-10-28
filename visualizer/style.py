@@ -8,7 +8,7 @@ import streamlit as st
 
 CSS = """
 <style>
-.block-container { padding-top: 3.2rem; max-width: 100%; }
+.block-container { padding-top: 3.2rem; padding-bottom: 0; max-width: 100%; }
 .sv-title { font-size: 1.25rem; font-weight: 700; }
 .sv-chip {
     float: right; font-family: monospace; font-size: 0.8rem;
@@ -23,6 +23,12 @@ CSS = """
 .sv-card-label { font-size: 0.75rem; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.06em; }
 .sv-card-value { font-size: 1.8rem; font-weight: 700; }
 .sv-card-note { font-size: 0.75rem; opacity: 0.65; }
+/* Left / centre / right panels: each fits the window and scrolls on its own */
+[data-testid="stColumn"]:has(.st-key-left_panel),
+[data-testid="stColumn"]:has(.st-key-center_panel),
+[data-testid="stColumn"]:has(.st-key-right_panel) {
+    max-height: calc(100vh - 4.5rem); overflow-y: auto; overscroll-behavior: contain;
+}
 /* Heatmap box: tighter than the default bordered container */
 .st-key-heatmap_box { padding: 0.5rem 0.6rem; }
 .st-key-heatmap_box .sv-section { margin-top: 0; }
