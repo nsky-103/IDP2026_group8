@@ -107,6 +107,7 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         part_a_tag = "Part A: clean"
     pieces, _ = detection.find_pieces(clean, k=k_sigma, gap_s=gap_s, no_dye_level=no_dye_level)
     t2 = time.perf_counter()
+    amt = detection.amount(pieces)
 
     fs, a2 = clean["fs"], clean["adc2"]
     t_peak = [
@@ -120,8 +121,13 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         events=events,
         trace=(np.arange(len(a2)) / fs, a2),
         threshold=k_sigma * clean["sigma_adc2"],
-        summary={"Detected pieces (valid)": int(events["valid"].sum()), "All pieces": len(events),
-                 "Noise sigma (adc2)": round(clean["sigma_adc2"], 2)},
+        summary={
+            "Detected pieces (valid)": int(events["valid"].sum()),
+            "All pieces": len(events),
+            "Amount: total area (counts·ms)": round(amt["area"]),
+            "Amount: dyed pieces": int(amt["dyed"]),
+            "Noise sigma (adc2)": round(clean["sigma_adc2"], 2),
+        },
         timings={part_a_tag: round(t1 - t0, 3), "Part B: pieces": round(t2 - t1, 3)},
     )
 
