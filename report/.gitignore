@@ -6,3 +6,5 @@
 *.fdb_latexmk
 *.synctex.gz
 *.pdf
+.vscode/
+report/out/
