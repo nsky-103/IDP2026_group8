@@ -1,0 +1,22 @@
+\section{Results}
+
+\subsection{Speed}
+\begin{table}[h]
+  \centering
+  \caption{Processing time for a \SI{7.6}{\giga\byte}, \SI{4.7}{\hour} recording (MacBook, 4 workers).}
+  \label{tab:speed}
+  \begin{tabular}{lrr}
+    \toprule
+    Step & First open (s) & Next open (s) \\
+    \midrule
+    CSV $\rightarrow$ \SI{1}{\kilo\hertz} & 7.5 & 0.1 \\
+    Part A & 1.8 & 1.8 \\
+    Part B & 1.8 & 1.8 \\
+    \midrule
+    Total & 11 & 3.7 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Detection results}
+% TODO: add the per-recording table from result.json and discuss.

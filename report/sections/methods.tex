@@ -1,0 +1,55 @@
+\section{Materials and methods}
+
+\subsection{Fast reading and reduction to \SI{1}{\kilo\hertz}}
+The file is split into 1024 blocks whose lines are counted in parallel to build a row index,
+so any time window can be read directly. The blocks are then reduced to the mean, minimum and
+maximum of every 50 samples (\SI{50}{\kilo\hertz} $\rightarrow$ \SI{1}{\kilo\hertz}).
+The signal has no content above about \SI{500}{\hertz}, so the \SI{1}{\milli\second} mean keeps
+99.3--99.9\,\% of the peak height. The index and summary are cached for later opens.
+
+\subsection{Preprocessing (Part A)}
+For each channel:
+\begin{enumerate}
+  \item median filter (3 samples) to remove single-sample spikes;
+  \item Savitzky--Golay filter (7 samples, order 3);
+  \item subtraction of a baseline fitted by asymmetric least squares (ALS) on \SI{10}{\hertz}
+        block means and interpolated back to \SI{1}{\kilo\hertz};
+  \item noise level $\sigma$: RMS of the standard deviation of the quietest 10\,\% of
+        \SI{200}{\milli\second} blocks, after dropping idle blocks.
+\end{enumerate}
+If the median ratio \texttt{adc1}/\texttt{adc2} at the 50 largest \texttt{adc2} peaks is below
+0.1, \texttt{adc1} is not used for the two-channel check.
+
+\subsection{Detection and classification (Part B)}
+Peaks with prominence above $10\sigma$ are detected on both channels. Peaks less than
+\SI{1}{\second} apart are grouped into one piece. Each piece is labelled from its largest peak
+(Table~\ref{tab:labels}).
+
+\begin{table}[h]
+  \centering
+  \caption{Labelling rules.}
+  \label{tab:labels}
+  \begin{tabular}{ll}
+    \toprule
+    Condition & Label \\
+    \midrule
+    above the no-dye level (68.9 counts) & \texttt{dyed} \\
+    below, confirmed by \texttt{adc1} & \texttt{solid\_no\_dye} \\
+    below, not confirmed & \texttt{water} \\
+    below, two-channel check not usable & \texttt{undecided} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The two-channel check requires an \texttt{adc1} peak within \SI{\pm 20}{\milli\second} of the
+top \texttt{adc2} peak (shifted by the measured channel lag) and at least 5\,\% as high.
+The chance rate is estimated by shifting \texttt{adc1} by 2--\SI{20}{\second}; above 20\,\%
+the check is disabled.
+
+\subsection{Amount of tissue}
+The amount is the total area (counts\,$\times$\,ms) of the \texttt{dyed} and
+\texttt{solid\_no\_dye} pieces. No conversion to millilitres is made yet, since the area per
+millilitre depends on the dye concentration and on re-suction.
+
+\subsection{Visualizer}
+% TODO: describe the Streamlit app (overview with draggable window, detail view, heatmap, events table, LTTB).
