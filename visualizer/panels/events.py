@@ -5,12 +5,26 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+import signal_io
 import state
 from style import card, fmt_time, section
 
 MAX_EVENTS_LISTED = 25
 MAX_TABLE_ROWS = 500
 EVENT_ZOOM_S = 5.0  # "Show in plot" shows ± this many seconds around the event
+
+
+def _amount_in_window(events: pd.DataFrame, window: tuple[float, float] | None) -> dict | None:
+    """Relative amount for pieces that start inside the viewing window (issue #38)."""
+    if window is None or events is None or events.empty:
+        return None
+    if "area" not in events.columns or "start_s" not in events.columns:
+        return None
+    signal_io._ensure_core_on_path()
+    from core import detection as detection_core
+
+    t0, t1 = float(window[0]), float(window[1])
+    return detection_core.amount(events, t0, t1)
 
 
 def render(run: str, total_s: float) -> None:
@@ -45,6 +59,15 @@ def render_list(run: str, total_s: float) -> None:
     if detection is None:
         st.caption("Run **Detect peaks** to list events (after the 1 kHz summary is ready).")
         return
+
+    window = st.session_state.get("window")
+    amt_view = _amount_in_window(detection.events, window)
+    if amt_view is not None:
+        st.metric("Amount in view: total area (counts·ms)", round(amt_view["area"]))
+        st.caption(
+            "Relative fluorescence·time over valid pieces that start in the current window "
+            "(not ml/g — concentration-dependent)."
+        )
 
     selected = st.session_state.get("selected_event")
     largest = events.sort_values("amplitude", ascending=False)
