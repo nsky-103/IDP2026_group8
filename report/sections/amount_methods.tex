@@ -1,0 +1,30 @@
+\subsection{Amount of tissue}
+\label{sec:amount-methods}
+\subsubsection{Measures and model}
+For each suction we sum three measures over its \texttt{dyed} and \texttt{solid\_no\_dye}
+pieces: the number of pieces, height\,$\times$\,width, and the area (counts\,$\times$\,ms).
+We chose the area as the main measure before seeing the results, because it is the fluorescence
+added up over time.
+
+Let $S_{ij}$ be one of these measures for suction $j$ (first suction or re-suction) of
+recording $i$, and $A_i$ the known amount aspirated in that recording (ml or g). For each group of
+recordings we fitted the linear mixed model
+\begin{equation}
+  \log S_{ij} = \log k + \log A_i + \beta_j + u_i + \varepsilon_{ij},
+  \label{eq:amount}
+\end{equation}
+where $\beta_j$ is the effect of the suction number and $u_i$ a random effect of the recording.
+% (R: \texttt{lmer(log(S) $\sim$ offset(log(A)) + pass + (1 | rec))})
+The amount of a first
+suction is estimated as $\hat{A} = S / k$.
+
+\subsubsection{Measures without the concentration}
+The height and the area both grow with the dye
+concentration, so their ratio should not. We tried the sum over the pieces of area\,/\,height,
+similar to pulse-width sizing in flow cytometry~\cite{sharpless1976}, and of two widths measured
+relative to each piece's own height (full width at half maximum of the highest peak, and the
+time above half of the largest peak).
+
+The application shows the total area and the number of \texttt{dyed} pieces for reference, but
+does not convert them to millilitres, because the area per millilitre depends on the
+concentration.

@@ -1,0 +1,57 @@
+\subsection{Detection results}
+\label{sec:detection-results}
+\subsubsection{Big pieces}
+Every piece was found (Table~\ref{tab:bigpieces},
+Figure~\ref{fig:detection}); in the high section two pieces were split in two, giving 17. 41 of
+the 45 dyed pieces were labelled \texttt{dyed}; the other pieces in these sections were below the
+no-dye level and labelled \texttt{solid\_no\_dye}, so all were counted as tissue. No no-dye piece
+was labelled \texttt{dyed}. However, all 4 water events after the tissue passed the two-channel check and were labelled \texttt{solid\_no\_dye}.
+In the water-only recording, 1 of 39 events reached the no-dye level.
+
+\begin{table}[H]
+  \centering
+  \caption{Labels in the Big pieces recording, by section.}
+  \label{tab:bigpieces}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Section & Events & \texttt{dyed} & \texttt{solid\_no\_dye} & \texttt{water} \\
+    \midrule
+    High & 17 & 13 & 4 & 0 \\
+    Middle & 15 & 14 & 1 & 0 \\
+    Low & 15 & 14 & 1 & 0 \\
+    Zero (no dye) & 15 & 0 & 15 & 0 \\
+    Water & 4 & 0 & 4 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{img/fig_detection.pdf}
+  \caption{Largest peak of each event. In the water-only recording \texttt{adc1} hardly
+           responds, so dim events are \texttt{undecided}.}
+  \label{fig:detection}
+\end{figure}
+
+\subsubsection{All recordings}
+The pipeline ran to the end on all 29 recordings
+(Table~\ref{tab:allrecordings}). In the 28 recordings where \texttt{adc1} responds, the chance
+rate was 1--15\,\% (median 6\,\%), so the two-channel check was used in all of them, and 82\,\%
+of the \texttt{dyed} pieces also passed the check (62--100\,\% per recording).
+
+\begin{table}[H]
+  \centering
+  \caption{Events and labels in all recordings.}
+  \label{tab:allrecordings}
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    Group & Files & Events & \texttt{dyed} & No dye & Water & Undecided \\
+    \midrule
+    Big pieces & 1 & 69 & 41 & 26 & 2 & 0 \\
+    Water only & 1 & 39 & 1 & 0 & 0 & 38 \\
+    Known volumes (2025) & 9 & 246 & 176 & 16 & 54 & 0 \\
+    Tumour & 10 & 285 & 241 & 21 & 23 & 0 \\
+    Demo sessions & 8 & 377 & 187 & 112 & 78 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
