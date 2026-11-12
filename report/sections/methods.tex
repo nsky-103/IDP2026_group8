@@ -8,33 +8,17 @@ The signal has no content above about \SI{500}{\hertz}, so the \SI{1}{\milli\sec
 99.3--99.9\,\% of the peak height. The index and summary are cached for later opens.
 
 \subsection{Preprocessing (Part A)}
-Part A works on the \SI{1}{\kilo\hertz} means of each channel and has three steps:
+For each channel:
 \begin{enumerate}
-  \item a median filter (3 samples), which removes single-sample spikes;
-  \item a Savitzky--Golay filter (7 samples, order 3)~\cite{savitzky1964}, which smooths small
-        fluctuations;
-  \item subtraction of a slowly varying baseline. The baseline is fitted by asymmetric least
-        squares (ALS)~\cite{eilers2005} on \SI{10}{\hertz} block means (smoothness
-        $\lambda = 10^{5}$, asymmetry $p = 0.01$, 10 iterations) and interpolated back to
-        \SI{1}{\kilo\hertz}. Samples above the fitted curve get a small weight, so the baseline
-        follows the signal from below and is not pulled up by the peaks.
+  \item median filter (3 samples) to remove single-sample spikes;
+  \item Savitzky--Golay filter (7 samples, order 3);
+  \item subtraction of a baseline fitted by asymmetric least squares (ALS) on \SI{10}{\hertz}
+        block means and interpolated back to \SI{1}{\kilo\hertz};
+  \item noise level $\sigma$: RMS of the standard deviation of the quietest 10\,\% of
+        \SI{200}{\milli\second} blocks, after dropping idle blocks.
 \end{enumerate}
-The ALS equations form a symmetric pentadiagonal system, which is solved with a banded
-Cholesky solver, and the two channels are processed in parallel threads. On all recordings
-compared, this gives the same pieces and labels as the earlier sparse-matrix implementation.
 If the median ratio \texttt{adc1}/\texttt{adc2} at the 50 largest \texttt{adc2} peaks is below
 0.1, \texttt{adc1} is not used for the two-channel check.
-
-\subsection{Noise level and threshold}
-\label{sec:threshold}
-The noise level $\sigma$ of each channel is estimated from the cleaned signal itself. The signal
-is divided into \SI{200}{\milli\second} blocks, blocks whose standard deviation is below half the
-median block standard deviation are dropped as idle (no flow), and $\sigma$ is the root mean
-square of the standard deviations of the quietest 10\,\% of the remaining blocks.
-Part B detects peaks whose prominence exceeds $k\sigma$ with $k = 10$.
-All settings are the same for every recording: $k$, the \SI{1}{\second} grouping gap and the
-no-dye level of 68.9 counts. Only $\sigma$ differs between recordings, and it is measured from
-each signal and not chosen by concentration.
 
 \subsection{Detection and classification (Part B)}
 Peaks with prominence above $10\sigma$ are detected on both channels. Peaks less than
