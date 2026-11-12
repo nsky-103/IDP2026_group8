@@ -108,16 +108,17 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         part_a_tag = "Part A: clean"
     pieces, _ = detection.find_pieces(clean, k=k_sigma, gap_s=gap_s, no_dye_level=no_dye_level)
     t2 = time.perf_counter()
-    amt = detection.amount(pieces)
 
     fs, a2 = clean["fs"], clean["adc2"]
     t_peak = [
         (int(s * fs) + int(np.argmax(a2[int(s * fs):max(int(e * fs), int(s * fs) + 1)]))) / fs
         for s, e in zip(pieces["start_s"], pieces["end_s"])
     ]
+    # Keep core columns for analysis, but do not expose size/amount estimates in the UI.
+    drop_cols = [c for c in ("max_height", "size_mm") if c in pieces.columns]
     events = pieces.assign(t_peak=t_peak, amplitude=pieces["max_height"],
                            valid=pieces["label"].isin(VALID_LABELS))
-    events = events.drop(columns="max_height")
+    events = events.drop(columns=drop_cols, errors="ignore")
     return Detection(
         events=events,
         trace=(np.arange(len(a2)) / fs, a2),
@@ -125,8 +126,6 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         summary={
             "Detected pieces (valid)": int(events["valid"].sum()),
             "All pieces": len(events),
-            "Amount: total area (counts·ms)": round(amt["area"]),
-            "Amount: dyed pieces": int(amt["dyed"]),
             "Noise sigma (adc2)": round(clean["sigma_adc2"], 2),
         },
         timings={part_a_tag: round(t1 - t0, 3), "Part B: pieces": round(t2 - t1, 3)},
