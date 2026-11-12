@@ -36,7 +36,7 @@ In the water-only recording, 1 of 39 events reached the no-dye level.
 \subsubsection{All recordings}
 The pipeline ran to the end on all 29 recordings
 (Table~\ref{tab:allrecordings}). In the 28 recordings where \texttt{adc1} responds, the chance
-rate was 1--15\,\% (median 6\,\%), so the two-channel check was used in all of them, and 82\,\%
+rate was at most 15\,\% (median 5\,\%), so the two-channel check was used in all of them, and 82\,\%
 of the \texttt{dyed} pieces also passed the check (62--100\,\% per recording).
 
 \begin{table}[H]
@@ -55,3 +55,36 @@ of the \texttt{dyed} pieces also passed the check (62--100\,\% per recording).
     \bottomrule
   \end{tabular}
 \end{table}
+
+\subsubsection{Comparison with simpler methods}
+To see what the two less obvious steps add, we ran the same recordings with a simpler version of
+each step and everything else unchanged (\texttt{tools/benchmark\_methods.py};
+Table~\ref{tab:simple}). For $\sigma$, the simple version uses all \SI{200}{\milli\second}
+blocks, including the idle ones. For the two-channel check, it looks for any \texttt{adc1} peak
+within \SI{\pm 20}{\milli\second} of the largest \texttt{adc2} peak, without the lag correction
+and the 5\,\% height condition.
+
+\begin{table}[H]
+  \centering
+  \caption{Current and simple methods on the same recordings. Only the named step differs.}
+  \label{tab:simple}
+  \begin{tabular}{llrr}
+    \toprule
+    Step & Result & Current & Simple \\
+    \midrule
+    $\sigma$ & events in the 29 recordings & 1016 & 876 \\
+             & events in one demo recording & 48 & 1 \\
+    Two-channel check & chance rate, median / max & 5 / 15\,\% & 7 / 40\,\% \\
+             & recordings where the check is used & 28 of 28 & 27 of 28 \\
+             & \texttt{dyed} pieces also confirmed & 82\,\% & 70\,\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+With all blocks, idle periods make $\sigma$ too small. The threshold then falls below the water
+wiggles, and separate pieces join: in one demo recording with long idle periods all 48 events
+became one. With the simple two-channel check, small \texttt{adc1} noise peaks pass more often
+by chance; in the \SI{4.7}{\hour} recording the chance rate reached 40\,\%, so the check could
+not be used there, and fewer dyed pieces were confirmed. In the Big pieces recording, both
+simple versions gave the same labels as the current ones, so the gain shows only in the
+other recordings.

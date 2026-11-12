@@ -3,23 +3,29 @@
 \subsection{Speed}
 \begin{table}[H]
   \centering
-  \caption{Time to open the \SI{7.6}{\giga\byte}, \SI{4.7}{\hour} recording (Mac, 8 cores, 4 workers).}
+  \caption{Time to open the \SI{7.6}{\giga\byte}, \SI{4.7}{\hour} recording
+           (\texttt{tools/benchmark\_io.py}; Mac, 8 cores, 8 workers, file read from disk).}
   \label{tab:speed}
   \begin{tabular}{lrr}
     \toprule
     Step & First open (s) & Next open (s) \\
     \midrule
-    CSV $\rightarrow$ \SI{1}{\kilo\hertz} & 9.1 & 0.04 \\
-    Part A & 0.6 & 0.02 \\
+    CSV $\rightarrow$ \SI{1}{\kilo\hertz} & 9.5 & 0.03 \\
+    Part A & 0.5 & 0.02 \\
     Part B & 1.1 & 1.1 \\
     \midrule
-    Total & 10.8 & 1.2 \\
+    Total & 11.1 & 1.2 \\
     \bottomrule
   \end{tabular}
 \end{table}
-The first open takes \SI{10.8}{\second}. After
-that, the 1\,kHz signal and the Part A result come from the cache, so the file opens in
-\SI{1.2}{\second}. The results are the same with and without the cache.
+The first open takes \SI{11.1}{\second}. After that, the 1\,kHz signal and the Part A result
+come from the cache, so the file opens in \SI{1.2}{\second}. The results are the same with and
+without the cache, and the 1\,kHz signal matches the CSV.
+
+For comparison, simpler readers that go through the file in one process would take about
+\SI{514}{\second} (Python \texttt{csv} module) and \SI{35}{\second} (pandas in chunks),
+estimated from the first \SI{200}{\mega\byte}. With the file in memory, reducing it to 1\,kHz in
+parallel takes \SI{12.5}{\second} with the pandas parser and \SI{4.9}{\second} with the compiled one (numba).
 
 \input{sections/detection_results}
 

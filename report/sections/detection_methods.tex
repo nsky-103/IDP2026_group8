@@ -1,7 +1,8 @@
 \subsection{Detection and classification (Part B)}
 \label{sec:detection-methods}
 \subsubsection{Finding events}
-We find peaks with a prominence above $10\sigma$ on both channels. One tissue piece often gives
+We find peaks with a prominence above the threshold $k\sigma$ (Section~\ref{sec:threshold})
+on both channels. One tissue piece often gives
 several peaks, so peaks less than \SI{1}{\second} apart are grouped into one \emph{event}. An
 event represents either a piece of tissue or water. Each event is labelled from its largest peak (Table~\ref{tab:labels}).
 
