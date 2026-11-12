@@ -40,14 +40,11 @@ def render_selected(run: str) -> None:
         return
 
     e = events.loc[event_id]
-    size = e.get("size_mm")
     card(
         f"Selected event · {event_id}",
         value=str(e["label"]),
         notes=[
             f"amplitude {e['amplitude']:.1f} · {e['polarity']} · at {fmt_time(e['t_peak'])}",
-            f"estimated size: {size:.1f} mm" if pd.notna(size) else
-            "estimated size: — mm (no size from this algorithm yet)",
         ],
     )
 
@@ -87,6 +84,8 @@ def render_list(run: str, total_s: float) -> None:
         if detection.timings:
             st.json(detection.timings)
         table = detection.events
+        if "size_mm" in table.columns:
+            table = table.drop(columns=["size_mm"])
         if len(table) > MAX_TABLE_ROWS:  # a huge table freezes the page
             st.caption(f"Showing {MAX_TABLE_ROWS} / {len(table)} rows (largest amplitudes).")
             table = table.nlargest(MAX_TABLE_ROWS, "amplitude")

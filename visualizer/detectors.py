@@ -12,8 +12,9 @@ algorithm needs no UI code.
 ``Detection.events`` is one row per detected event:
 
     required  t_peak (s), amplitude, valid (bool), label (str)
-    optional  start_s, end_s, polarity ("positive" / "negative"), size_mm
+    optional  start_s, end_s, polarity ("positive" / "negative")
     anything else is shown as-is in the detection table
+    (Piece size in mm is not estimated — not reliable from these signals alone.)
 
 No Streamlit here.
 """

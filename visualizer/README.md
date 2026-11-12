@@ -51,8 +51,7 @@ Every algorithm returns the same `Detection` (an `events` table with at least `t
 **Add an algorithm:** write `def my_detector(recording, **params) -> Detection` in `detectors.py`
 (`recording.summary` holds the 1 kHz mean/min/max, so the CSV is not read again) and add a
 `Detector(...)` entry with its `Param`s to `DETECTORS`. It appears in the *Algorithm* menu with its
-own controls; no UI code needed. Add a `size_mm` column to fill the "estimated size" on the event
-card.
+own controls; no UI code needed. Do not estimate piece size in mm from these signals alone.
 
 ## Data policy
 
