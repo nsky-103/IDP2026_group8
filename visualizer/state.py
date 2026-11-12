@@ -4,10 +4,10 @@ Streamlit reruns the whole script on every click, so state lives here:
     runs            {run name: {"csv": csv path, "phase": "preview" | "ready"}}
     active_run      name of the selected run
     detections      {run name: detectors.Detection}
-    window          (start_s, end_s) viewing range
+    window          (start_s, end_s) window range
     selected_event  event ID, e.g. "E3"
 
-The viewing window is shown by two widgets (overview box-drag and a range slider), and
+The viewing window is set by two widgets (overview frame and a window-size slider), and
 Streamlit forbids writing a widget's key after the widget was drawn in the same run.
 ``set_window`` and ``sync_slider`` handle that; panels only call ``set_window``.
 """
@@ -22,9 +22,10 @@ import streamlit as st
 import viewport
 from detectors import Detection
 
-DEFAULT_WINDOW_S = 30.0
-SLIDER_KEY = "overview_range_slider"
-_VIEW_KEYS = ["window", "selected_event", SLIDER_KEY, "_overview_sel_sig",
+DEFAULT_WINDOW_S = 5.0
+SLIDER_KEY = "overview_size_slider"  # window width (s); the frame sets the position
+SLIDER_STEP_S = 0.1  # fixed step, so round widths such as the 5 s default land exactly
+_VIEW_KEYS = ["window", "selected_event", SLIDER_KEY,
               "_pending_slider_from_window", "_overview_slider_live"]
 
 ss = st.session_state
@@ -54,8 +55,6 @@ def register_run(csv_path: Path, phase: str) -> None:
         detections().pop(name, None)  # new or reloaded run: select it, start fresh
         ss["active_run"] = name
         reset_view()
-    elif prev["phase"] != phase:
-        bump("_overview_chart_gen")  # summary ready: keep the window, redraw the overview
 
 
 def is_ready(run: str | None) -> bool:
@@ -86,7 +85,7 @@ def reset_view() -> None:
 def keep_or_reset_view(total_s: float) -> None:
     """At index milestone (#30): keep the preview window if it still fits the exact length.
 
-    Only reset to the default 0–30 s range when there is no window or it no longer fits.
+    Only reset to the default 0–5 s range when there is no window or it no longer fits.
     """
     total_s = float(total_s)
     w = ss.get("window")
@@ -111,27 +110,31 @@ def window(total_s: float) -> viewport.Window:
 
 
 def set_window(start_s: float, end_s: float, total_s: float) -> None:
-    """Store the viewing window, move the range slider to match and redraw the overview."""
+    """Store the viewing window and set the size slider to its width."""
     ss["window"] = viewport.clamp(start_s, end_s, total_s)
     if ss.get("_overview_slider_live"):
         ss["_pending_slider_from_window"] = True  # slider already drawn: update next run
     else:
-        ss[SLIDER_KEY] = ss["window"]
+        ss[SLIDER_KEY] = _width(ss["window"])
         ss.pop("_pending_slider_from_window", None)
-    bump("_overview_chart_gen")
 
 
 def sync_slider(total_s: float) -> viewport.Window:
-    """Call before the range slider is drawn: reconcile slider and window, return the window."""
+    """Call before the size slider is drawn: reconcile slider and window, return the window."""
     ss["_overview_slider_live"] = False
     w = window(total_s)
     if ss.pop("_pending_slider_from_window", False) or SLIDER_KEY not in ss:
-        ss[SLIDER_KEY] = w
+        ss[SLIDER_KEY] = _width(w)
         return w
-    sa, sb = ss[SLIDER_KEY]
-    if (round(float(sa), 4), round(float(sb), 4)) != (round(w[0], 4), round(w[1], 4)):
-        set_window(sa, sb, total_s)  # the user moved the slider
+    # The slider snaps a width set by dragging the frame to its step; only a bigger change
+    # means the user moved the slider. Then keep the centre.
+    if abs(float(ss[SLIDER_KEY]) - _width(w)) > 0.5 * SLIDER_STEP_S:
+        set_window(*viewport.centred(0.5 * (w[0] + w[1]), float(ss[SLIDER_KEY]), total_s), total_s)
     return ss["window"]
+
+
+def _width(w: viewport.Window) -> float:
+    return round(w[1] - w[0], 4)
 
 
 def slider_drawn() -> None:

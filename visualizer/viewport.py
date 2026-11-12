@@ -6,17 +6,19 @@ No Streamlit here; ``state.py`` stores the result.
 from __future__ import annotations
 
 MIN_WIDTH_S = 0.5
+MAX_WIDTH_S = 180.0  # 3 min; a wider window is too dense to read
 Window = tuple[float, float]
 
 
 def clamp(start_s: float, end_s: float, total_s: float) -> Window:
-    """Order the ends, keep them inside the recording and at least MIN_WIDTH_S apart."""
+    """Order the ends, keep them inside the recording and MIN_WIDTH_S to MAX_WIDTH_S apart."""
     a = max(0.0, min(float(start_s), float(total_s)))
     b = max(0.0, min(float(end_s), float(total_s)))
     if b < a:
         a, b = b, a
     if b - a < MIN_WIDTH_S:
         b = min(float(total_s), a + MIN_WIDTH_S)
+    b = min(b, a + MAX_WIDTH_S)
     return a, b
 
 
@@ -33,7 +35,7 @@ def zoom(window: Window, total_s: float, factor: float) -> Window:
     """Zoom around the centre (factor < 1 zooms in). At an edge the free side grows instead."""
     start, end = window
     centre = 0.5 * (start + end)
-    width = max(MIN_WIDTH_S, min((end - start) * factor, float(total_s)))
+    width = max(MIN_WIDTH_S, min((end - start) * factor, float(total_s), MAX_WIDTH_S))
     return _shift_inside(centre - 0.5 * width, centre + 0.5 * width, total_s)
 
 
@@ -46,7 +48,7 @@ def pan(window: Window, total_s: float, direction: float) -> Window:
 
 def centred(centre_s: float, width_s: float, total_s: float) -> Window:
     """Window of ``width_s`` around ``centre_s``, shifted inside the recording."""
-    width = min(max(width_s, MIN_WIDTH_S), float(total_s))
+    width = min(max(width_s, MIN_WIDTH_S), float(total_s), MAX_WIDTH_S)
     start = min(max(0.0, centre_s - 0.5 * width), total_s - width)
     return start, start + width
 
