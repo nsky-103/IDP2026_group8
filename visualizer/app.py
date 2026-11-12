@@ -7,11 +7,11 @@ Page layout                                  file
 -----------
     header   title · file info               app.py
     left     import · runs                   panels/data_import.py
-             channels · detection · display  panels/controls.py
+             channels · heatmap · detection  panels/controls.py
     center   full-recording overview         panels/overview.py
              detail zoom                     panels/detail.py
-             activity heatmap                panels/heatmap.py
-    right    selected event · events list    panels/events.py
+    right    activity heatmap                panels/heatmap.py
+             selected event · events list    panels/events.py
 
 Other files
 -----------
@@ -56,7 +56,9 @@ def main() -> None:
 
     # header_left, header_right = st.columns([1, 2])
     # header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
-    left, center, right = st.columns([1.15, 3.4, 1.6], gap="medium")
+    # Keyed containers: style.py makes each column scroll on its own (PR #41)
+    left, center, right = (col.container(key=f"{name}_panel") for col, name in zip(
+        st.columns([1.15, 3.0, 2.0], gap="medium"), ("left", "center", "right")))
 
     with left:
         data_import.render()
@@ -89,9 +91,9 @@ def main() -> None:
                 controls.run_detection(run, recording, settings)
         overview.render(recording, run, total_s, settings)
         detail.render(recording, run, total_s, settings)
-        heatmap.render(recording, run, total_s, settings)
 
     with right:
+        heatmap.render(recording, run, total_s, settings)
         events.render(run, total_s)
 
 

@@ -1,6 +1,7 @@
 """Viewing-window math: (start_s, end_s) pairs in, (start_s, end_s) pairs out.
 
 No Streamlit here; ``state.py`` stores the result.
+Width is capped only by the recording length (and MIN_WIDTH_S).
 """
 
 from __future__ import annotations
@@ -11,12 +12,15 @@ Window = tuple[float, float]
 
 def clamp(start_s: float, end_s: float, total_s: float) -> Window:
     """Order the ends, keep them inside the recording and at least MIN_WIDTH_S apart."""
-    a = max(0.0, min(float(start_s), float(total_s)))
-    b = max(0.0, min(float(end_s), float(total_s)))
+    total = float(total_s)
+    a = max(0.0, min(float(start_s), total))
+    b = max(0.0, min(float(end_s), total))
     if b < a:
         a, b = b, a
     if b - a < MIN_WIDTH_S:
-        b = min(float(total_s), a + MIN_WIDTH_S)
+        b = min(total, a + MIN_WIDTH_S)
+        if b - a < MIN_WIDTH_S:
+            a = max(0.0, b - MIN_WIDTH_S)
     return a, b
 
 
