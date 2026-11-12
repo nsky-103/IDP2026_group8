@@ -1,4 +1,4 @@
-"""Centre, bottom: whole recording folded into rows; click a cell to view that time."""
+"""Right column: whole recording folded into rows; click a cell to view that time."""
 
 from __future__ import annotations
 

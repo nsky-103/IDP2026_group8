@@ -9,9 +9,9 @@ Page layout                                  file
     left     import · runs                   panels/data_import.py
              channels · heatmap · detection  panels/controls.py
     center   full-recording overview         panels/overview.py
-             activity heatmap                panels/heatmap.py
              detail zoom                     panels/detail.py
-    right    selected event · events list    panels/events.py
+    right    activity heatmap                panels/heatmap.py
+             selected event · events list    panels/events.py
 
 Other files
 -----------
@@ -56,7 +56,7 @@ def main() -> None:
 
     # header_left, header_right = st.columns([1, 2])
     # header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
-    left, center, right = st.columns([1.15, 3.4, 1.6], gap="medium")
+    left, center, right = st.columns([1.15, 3.0, 2.0], gap="medium")
 
     with left:
         data_import.render()
@@ -88,10 +88,10 @@ def main() -> None:
             else:
                 controls.run_detection(run, recording, settings)
         overview.render(recording, run, total_s, settings)
-        heatmap.render(recording, run, total_s, settings)
         detail.render(recording, run, total_s, settings)
 
     with right:
+        heatmap.render(recording, run, total_s, settings)
         events.render(run, total_s)
 
 
