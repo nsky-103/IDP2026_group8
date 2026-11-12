@@ -56,7 +56,9 @@ def main() -> None:
 
     # header_left, header_right = st.columns([1, 2])
     # header_left.markdown('<div class="sv-title">Signal Viewer</div>', unsafe_allow_html=True)
-    left, center, right = st.columns([1.15, 3.0, 2.0], gap="medium")
+    # Keyed containers: style.py makes each column scroll on its own (PR #41)
+    left, center, right = (col.container(key=f"{name}_panel") for col, name in zip(
+        st.columns([1.15, 3.0, 2.0], gap="medium"), ("left", "center", "right")))
 
     with left:
         data_import.render()
