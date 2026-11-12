@@ -14,6 +14,16 @@ Quick run on one recording or a folder:
 python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER
 ```
 
+Benchmarks (run from the repository root; data paths are given as arguments):
+
+```bash
+python tools/benchmark_io.py PATH_TO_CSV
+python tools/benchmark_methods.py DATA_FOLDER
+```
+
+`benchmark_io.py` measures how fast a recording opens and compares it with simpler readers.
+`benchmark_methods.py` compares the current sigma and two-channel check with simpler versions.
+
 Measurement data and anything derived from it are never committed (data policy in `visualizer/README.md`).
 
 ## Processing flow
@@ -103,6 +113,7 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
 |---|---|---|
 | Visualizer app | `visualizer/` | tut-morimoto, KeitoTsubaki (see git history) |
 | Fast CSV access: row index, zoomed windows, 1 kHz summary | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
+| Comparison of the methods with simpler versions | `tools/benchmark_methods.py` | Sora |
 | Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
 | Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features, amount (total area) | `core/detection.py` | Sora |
 | Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
