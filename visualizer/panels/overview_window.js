@@ -39,6 +39,7 @@ function setUp(root) {
       s.win = shiftInside(toTime(s, x) - w / 2, toTime(s, x) + w / 2, s.data.total);
     }
     s.drag = { mode: mode === "outside" ? "move" : mode, x0: x, win0: s.win.slice() };
+    canvas.style.cursor = cursorFor(s.drag.mode, true);
     canvas.setPointerCapture(e.pointerId);
     draw(s);
   });
@@ -48,6 +49,7 @@ function setUp(root) {
       canvas.style.cursor = cursorFor(hitTest(s, x));
       return;
     }
+    canvas.style.cursor = cursorFor(s.drag.mode, true);
     const dt = toTime(s, x) - toTime(s, s.drag.x0);
     const [a0, b0] = s.drag.win0;
     const { total, min_width: minW, max_width: maxW } = s.data;
@@ -56,9 +58,10 @@ function setUp(root) {
     else s.win = [a0, clamp(b0 + dt, a0 + minW, Math.min(total, a0 + maxW))];
     draw(s);
   });
-  const finish = () => {
+  const finish = (e) => {
     if (!s.drag) return;
     s.drag = null;
+    canvas.style.cursor = e ? cursorFor(hitTest(s, localX(s, e))) : "";
     draw(s);
     if (s.win[0] !== s.data.window[0] || s.win[1] !== s.data.window[1]) {
       s.send("window", s.win.map((v) => Math.round(v * 1e4) / 1e4));
@@ -100,7 +103,8 @@ function hitTest(s, x) {
   return x > xa && x < xb ? "move" : "outside";
 }
 
-function cursorFor(mode) {
+function cursorFor(mode, dragging = false) {
+  if (dragging) return mode === "move" ? "grabbing" : "ew-resize";
   return { start: "ew-resize", end: "ew-resize", move: "grab", outside: "pointer" }[mode] || "";
 }
 
