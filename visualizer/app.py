@@ -7,10 +7,10 @@ Page layout                                  file
 -----------
     header   title · file info               app.py
     left     import · runs                   panels/data_import.py
-             channels · detection · display  panels/controls.py
+             channels · heatmap · detection  panels/controls.py
     center   full-recording overview         panels/overview.py
-             detail zoom                     panels/detail.py
              activity heatmap                panels/heatmap.py
+             detail zoom                     panels/detail.py
     right    selected event · events list    panels/events.py
 
 Other files
@@ -88,8 +88,8 @@ def main() -> None:
             else:
                 controls.run_detection(run, recording, settings)
         overview.render(recording, run, total_s, settings)
-        detail.render(recording, run, total_s, settings)
         heatmap.render(recording, run, total_s, settings)
+        detail.render(recording, run, total_s, settings)
 
     with right:
         events.render(run, total_s)
