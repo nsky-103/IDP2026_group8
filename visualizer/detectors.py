@@ -126,7 +126,6 @@ def core_pieces(recording: signal_io.Recording, k_sigma: float, gap_s: float,
         summary={
             "Detected pieces (valid)": int(events["valid"].sum()),
             "All pieces": len(events),
-            "Noise sigma (adc2)": round(clean["sigma_adc2"], 2),
         },
         timings={part_a_tag: round(t1 - t0, 3), "Part B: pieces": round(t2 - t1, 3)},
     )
