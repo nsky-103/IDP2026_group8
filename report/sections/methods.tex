@@ -20,36 +20,9 @@ For each channel:
 If the median ratio \texttt{adc1}/\texttt{adc2} at the 50 largest \texttt{adc2} peaks is below
 0.1, \texttt{adc1} is not used for the two-channel check.
 
-\subsection{Detection and classification (Part B)}
-Peaks with prominence above $10\sigma$ are detected on both channels. Peaks less than
-\SI{1}{\second} apart are grouped into one piece. Each piece is labelled from its largest peak
-(Table~\ref{tab:labels}).
+\input{sections/detection_methods}
 
-\begin{table}[h]
-  \centering
-  \caption{Labelling rules.}
-  \label{tab:labels}
-  \begin{tabular}{ll}
-    \toprule
-    Condition & Label \\
-    \midrule
-    above the no-dye level (68.9 counts) & \texttt{dyed} \\
-    below, confirmed by \texttt{adc1} & \texttt{solid\_no\_dye} \\
-    below, not confirmed & \texttt{water} \\
-    below, two-channel check not usable & \texttt{undecided} \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-The two-channel check requires an \texttt{adc1} peak within \SI{\pm 20}{\milli\second} of the
-top \texttt{adc2} peak (shifted by the measured channel lag) and at least 5\,\% as high.
-The chance rate is estimated by shifting \texttt{adc1} by 2--\SI{20}{\second}; above 20\,\%
-the check is disabled.
-
-\subsection{Amount of tissue}
-The amount is the total area (counts\,$\times$\,ms) of the \texttt{dyed} and
-\texttt{solid\_no\_dye} pieces. No conversion to millilitres is made yet, since the area per
-millilitre depends on the dye concentration and on re-suction.
+\input{sections/amount_methods}
 
 \subsection{Visualizer}
 % TODO: describe the Streamlit app (overview with draggable window, detail view, heatmap, events table, LTTB).

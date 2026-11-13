@@ -1,0 +1,32 @@
+\subsection{Detection and classification}
+\label{sec:detection-discussion}
+\subsubsection{Water after tissue is labelled as tissue}
+All 4 water events right after the tissue in
+the Big pieces recording passed the two-channel check, so water can be counted as no-dye tissue.
+A shape rule could fix this: water events look noisier (AUC 0.80 against no-dye pieces).
+However, most of this comes from water events being longer (length alone: AUC 0.75), and only
+these 4 events show the case that matters, so a rule fitted to them would not be reliable. For the
+same reason, we did not train a classifier (such as a random forest): with only 4 examples, it
+would overfit. More recordings with known water after tissue are needed first.
+
+\subsubsection{Pieces join in dense suctions}
+Grouping peaks less than \SI{1}{\second} apart gives
+the right number of pieces in the Big pieces recording, but when much tissue flows, as in
+re-suctions, pieces join into one long event (up to about \SI{1}{\minute} in the known volumes).
+The count is then too low. A shorter gap would split single pieces, which also give several
+peaks within about a second. Splitting at deep valleys between peaks, where the signal returns
+close to the baseline, is another option. However, without recordings of dense flow with a known
+number of pieces we cannot check either rule. An indirect check would be that the Big pieces
+count stays correct while the count follows the known volumes better, but with eight recordings
+such a rule should be fixed before looking at the result.
+
+\subsubsection{Fixed levels}
+The no-dye level is fixed in counts, so it only holds for the gain of the
+recordings it was made from; with another gain it must be measured again from a water-only
+recording. The $10\sigma$ threshold also misses part of the dim signal: at middle concentration
+10--27\,\% of the signal is outside the events. No whole piece was lost, so this matters only
+for the area, but a lower threshold would also pick up more water noise.
+
+\subsubsection{No \texttt{adc1}}
+When \texttt{adc1} does not respond, dim events can only be
+\texttt{undecided}. This needs a working second channel and cannot be fixed in software.
