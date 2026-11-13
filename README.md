@@ -1,68 +1,163 @@
 # IDP2026 group 8 — Marginum fluorescence signal
 
-Detect and judge aspirated tissue pieces in Marginum recordings.
+Marginum measures the fluorescence of tissue pieces while they are aspirated during surgery. This project
+reads the raw two-channel recordings, finds each aspirated tissue piece, judges whether it is dyed tissue,
+undyed tissue or only water, and sums up the amount of tissue. It has a command-line analysis and an
+interactive viewer.
 
-**Input:** CSV with a header line `adc1,adc2` and two integer columns, sampled at 50 kHz.
-**Output:** one row per tissue piece (start, end, height, area, label) and the total amount of tissue.
+Contents: [Requirements](#requirements) · [Setup](#setup) · [Data](#data-information) ·
+[How to run](#how-to-run) · [Expected result](#expected-result) · [Code structure](#code-structure) ·
+[Method summary](#method-summary) · [Contributions](#contributions)
 
-| Folder | What |
+## Requirements
+
+| | |
 |---|---|
-| `core/` | Data access and algorithms shared by the app and the scripts, no UI (see [`core/README.md`](core/README.md)) |
-| `tools/` | Command-line scripts: `run_pipeline.py` (whole analysis), `benchmark_io.py` (speed test) |
-| `visualizer/` | Streamlit app to browse a recording and its detected pieces (see [`visualizer/README.md`](visualizer/README.md)) |
-| `report/` | Course report (LaTeX, `report.tex` + `sections/`) |
-| `result.json` | Last benchmark: timings on the 7.6 GB recording and piece counts per test recording |
-
-> **Data policy:** measurement data and anything derived from it are never committed. Keep recordings on
-> UEF OneDrive and delete local copies when the course ends (details in [`visualizer/README.md`](visualizer/README.md#data-policy)).
+| Python | 3.11 (other 3.10+ versions are likely to work but are not tested) |
+| OS | Tested on Windows 11 and macOS |
+| Memory | 8 GB is enough; the 7.6 GB recording peaks at about 4.6 GB (3.6 GB main + 0.26 GB per worker) |
+| Disk | Cache of about 270 MB per 4.7 h recording (outside the repository, see [Cache](#cache)) |
+| Packages | `visualizer/requirements.txt`: numpy, pandas, scipy, pybaselines, streamlit, plotly, matplotlib, pyarrow, numba |
 
 ## Setup
 
-Python 3.11 or newer. All dependencies are listed in `visualizer/requirements.txt` (also used by `core/` and `tools/`).
+Run from the repository root. The one `requirements.txt` (in `visualizer/`) covers `core/`, `tools/` and
+the viewer.
+
+macOS / Linux:
 
 ```bash
-python3.11 -m venv .venv            # Windows: py -3.11 -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
+git clone https://github.com/nsky-103/IDP2026_group8.git
+cd IDP2026_group8
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r visualizer/requirements.txt
 ```
 
-`numba` and `pyarrow` are optional but make the first open of a large file 2–3x faster.
+Windows (PowerShell):
 
-## Usage
+```powershell
+git clone https://github.com/nsky-103/IDP2026_group8.git
+cd IDP2026_group8
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+pip install -r visualizer/requirements.txt
+```
 
-Analyse one recording, or every `*.csv` under a folder:
+## Data information
+
+The recordings are **not in this repository** (data policy below). They are provided by Marginum
+through the course, as the archive `2025-10-29 Suction data for tumor size estimation.7z`
+(about 12 GB unpacked). Extract it anywhere outside the repository.
+
+**Format:** CSV, a header line `adc1,adc2`, then two integer columns sampled at 50 kHz.
+`adc2` is the main fluorescence channel; `adc1` is the second channel used to confirm undyed tissue.
+
+```
+adc1,adc2
+510,604
+499,605
+```
+
+**Known-volume recordings** (`Suction data/Original/`, from `Info on measurements.odt`):
+
+| # | Dye concentration | Volume (ml) | Re-suctions | Size |
+|---|---|---|---|---|
+| 1 | HIGH | 4 | 3 | 7.6 GB, 4.7 h |
+| 2 | HIGH | 4 | 2 | |
+| 3 | HIGH | 2 | 2 | |
+| 4 | HIGH | 1 | 2 | |
+| 5 | HIGH | 1 | 0 | 30 MB, 1.2 min — **use this one for a first try** |
+| 6 | MIDDLE | 3 | 0 | |
+| 7 | MIDDLE | 2 | 1 | |
+| 8 | MIDDLE | 1 | 0 | |
+| 9 | MIDDLE | 1 | 0 | |
+
+**Data policy:** signal files belong to Marginum / the course. Do not commit CSV, ZIP, NPY or any file
+derived from them (`.gitignore` blocks the common ones). Keep data on UEF OneDrive and delete local copies
+when the course ends.
+
+## How to run
+
+With the virtual environment activated, from the repository root.
+
+### Command-line analysis
+
+One recording, or every `*.csv` under a folder:
 
 ```bash
-python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER
+python tools/run_pipeline.py "PATH/TO/5. suction_HIGH_CONC_1ml_and_no_resuction.csv"
 ```
 
 | Option | Effect |
 |---|---|
-| `--out DIR` | Also write `DIR/<name>.pieces.csv` (one row per piece) for each recording. Keep `DIR` outside the repository. |
+| `--out DIR` | Also write `DIR/<name>.pieces.csv` (one row per piece). Keep `DIR` outside the repository. |
 | `--no-cache` | Do not read or write the cache (always reads the CSV again) |
 | `--workers N` | Number of worker processes (default: one per CPU core, at most 8) |
 
-It prints one line per recording: length, number of pieces per label, noise level sigma, whether adc1 is
-used, and the time of each step.
-
-Open the interactive viewer:
+### Interactive viewer
 
 ```bash
 streamlit run visualizer/app.py
 ```
 
-## Processing flow
+Open http://localhost:8501 in the browser. Enter the file path rather than uploading the file: browser
+upload of multi-GB files is slow (the larger upload limit in `visualizer/.streamlit/config.toml` only
+applies when started from inside `visualizer/`). Then:
+
+1. Enter the CSV path → **Load** (a rough overview appears first, the exact 1 kHz data follows in the background)
+2. When the run shows *ready*: keep the algorithm `Method B · core Part A/B` → **Detect peaks**
+3. Click a piece in the events list (or a heatmap cell) to zoom to it
+
+### Cache
+
+The first open of a recording builds a row index, the 1 kHz summary and the Part A output and saves them in
+`~/.cache/idp2026` (change it with the environment variable `IDP_CACHE_DIR`). Later opens read them from
+there. The Part A file name includes a hash of the Part A parameters, so changing a parameter runs Part A
+again. Delete the folder to free the space.
+
+### Troubleshooting
+
+| Problem | Cause / fix |
+|---|---|
+| `ModuleNotFoundError` | The virtual environment is not activated, or `pip install -r visualizer/requirements.txt` was not run |
+| First open is slow even for a small file (about 20 s on Windows) | Worker processes start and numba compiles once; the second open uses the cache (0.1 s) |
+| `Expected a header line like 'adc1,adc2'` | The file is not a Marginum CSV, or its header was removed |
+| Path with spaces or brackets not found | Put the path in quotes |
+
+## Expected result
+
+`run_pipeline.py` prints one line per recording: length, number of pieces per label, noise level sigma,
+whether adc1 is used, and the time of each step. For recording 5 (measured on Windows 11):
 
 ```
-tools/run_pipeline.py  main()
-  └─ core/pipeline.py  analyse()
-       ├─ 1. open_recording()            CSV -> row index + 1 kHz summary (or read from the cache)
-       ├─ 2. preprocessing.preprocess()  Part A: median -> Savitzky-Golay -> ALS baseline -> sigma (or read from the cache)
-       └─ 3. detection.find_pieces()     Part B: peaks -> pieces -> labels -> features
+5. suction_HIGH_CONC_1ml_and_no_resuction.csv   1.2 min  pieces   10  {'dyed': 10}  sigma 1.62  adc1 used  |  read CSV -> 1 kHz 21.0 s  Part A: clean 0.0 s  Part B: pieces 0.0 s
 ```
 
-Time per step for the 7.6 GB / 4.7 h recording on a MacBook (4 workers, numba and pyarrow installed;
-from `result.json`):
+Running it again reads from the cache (`read (cache) 0.1 s`). With `--out`, the pieces file looks like this:
+
+```
+start_s,end_s,duration_s,n_peaks,max_height,area,confirmed,label
+7.594,26.475,18.881,95,1273.5,945692.0,True,dyed
+27.668,28.303,0.635,7,388.8,21738.0,True,dyed
+...
+```
+
+Pieces per recording for the known-volume set (`result.json`):
+
+| # | Pieces | `dyed` | `solid_no_dye` | `water` |
+|---|---|---|---|---|
+| 1 | 83 | 45 | 11 | 27 |
+| 2 | 41 | 39 | 0 | 2 |
+| 3 | 26 | 19 | 1 | 6 |
+| 4 | 22 | 13 | 2 | 7 |
+| 5 | 10 | 10 | 0 | 0 |
+| 6 | 17 | 15 | 0 | 2 |
+| 7 | 24 | 14 | 2 | 8 |
+| 8 | 14 | 13 | 0 | 1 |
+| 9 | 9 | 8 | 0 | 1 |
+
+Time for the largest recording (7.6 GB / 4.7 h) on a MacBook, 4 workers, numba and pyarrow installed:
 
 | Step | First open | Next open |
 |---|---|---|
@@ -71,29 +166,53 @@ from `result.json`):
 | 3. Part B | 1.9 s | 1.9 s |
 | **Total** | **12.5 s** | **2.0 s** |
 
-### Cache
+## Code structure
 
-The row index, the 1 kHz summary and the Part A output are saved in `~/.cache/idp2026` (change it with
-the environment variable `IDP_CACHE_DIR`), about 270 MB for the 4.7 h recording. The Part A file name
-includes a hash of the Part A parameters, so changing a parameter runs Part A again. Part B always runs
-again. Use `--no-cache` to skip the cache.
+```
+core/                    data access and algorithms, no UI (details: core/README.md)
+  fast_io.py             parallel CSV reading: row index, exact windows, 1 kHz summary
+  preprocessing.py       Part A: filters, ALS baseline, noise level sigma
+  detection.py           Part B: peaks, pieces, labels, features, amount
+  pipeline.py            analyse(): runs 1 -> Part A -> Part B, with the cache
+tools/
+  run_pipeline.py        command-line analysis of files or folders
+  benchmark_io.py        speed test of each step (writes result.json)
+visualizer/              Streamlit viewer (details: visualizer/README.md)
+  app.py                 page layout
+  panels/                one area of the page each (import, controls, overview, detail, heatmap, events)
+  detectors.py           algorithms offered in the viewer; the default calls core Part A/B
+  signal_io.py, load_jobs.py   reading a recording and loading it in the background
+  plots.py, lttb.py      figures and LTTB downsampling for display
+  requirements.txt       dependencies of the whole project
+report/                  course report (LaTeX: report.tex + sections/)
+result.json              last benchmark: timings and piece counts per test recording
+```
 
-### 1. Read the CSV and reduce it to 1 kHz — `core/pipeline.py`, `core/fast_io.py`
+The viewer and the command line use the same `core` code, so they give the same pieces.
 
-If the file is not in the cache:
+## Method summary
 
-1. `fast_io.build_index()` splits the file into 1024 blocks and counts the lines of each block in
-   parallel, so any row can be found by its byte position.
-2. `fast_io.summarize()` reads the blocks in parallel and takes the mean, min and max of every 50 samples
+```
+tools/run_pipeline.py  main()
+  └─ core/pipeline.py  analyse()
+       ├─ 1. open_recording()            CSV -> row index + 1 kHz summary (or read from the cache)
+       ├─ 2. preprocessing.preprocess()  Part A: median -> Savitzky-Golay -> ALS baseline -> sigma
+       └─ 3. detection.find_pieces()     Part B: peaks -> pieces -> labels -> features -> amount
+```
+
+### 1. Read the CSV and reduce it to 1 kHz — `core/fast_io.py`
+
+1. `build_index()` splits the file into 1024 blocks and counts the lines of each block in parallel, so
+   any row can be found by its byte position.
+2. `summarize()` reads the blocks in parallel and takes the mean, min and max of every 50 samples
    (50 kHz -> 1 kHz; parsed with numba, else pyarrow, else pandas).
    - The **mean** is the input for the analysis. The signal has no content above about 500 Hz, so 1 ms
      means keep peak height (99.3–99.9%) and area.
    - **Min and max** are used to draw the whole recording without hiding narrow peaks.
-3. The index and the summary are saved to the cache.
 
 ### 2. Part A: clean the signal — `core/preprocessing.py`
 
-`preprocess()` does the following for adc1 and adc2:
+For adc1 and adc2:
 
 1. `clean_channel()`
    - median filter (3 samples): removes single-sample spikes
@@ -108,20 +227,15 @@ If the file is not in the cache:
    2023 test signals, where adc1 hardly responds), adc1 is not used for the two-channel check
    ([#4](https://github.com/nsky-103/IDP2026_group8/issues/4)).
 
-Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel, and whether adc1 is used.
-
 ### 3. Part B: find and judge the pieces — `core/detection.py`
 
-`find_pieces()`:
-
-1. **Peaks**: `detect_peaks()` finds peaks with a prominence above 10 x sigma, on adc2 and on adc1.
-   Peaks in the first and last 0.5 s of the file are dropped.
+1. **Peaks**: prominence above 10 x sigma, on adc2 and on adc1. Peaks in the first and last 0.5 s are dropped.
 2. **Pieces**: peaks less than 1 s apart belong to the same piece (one aspirated tissue piece).
 3. **Label**, from the largest peak of the piece:
 
    | Condition | Label |
    |---|---|
-   | higher than the no-dye level (68.9 counts) | `dyed` |
+   | higher than the no-dye level (68.9 counts, top 0.1% of water-only peaks) | `dyed` |
    | lower, but confirmed by adc1 (two-channel check below) | `solid_no_dye` (tissue without dye) |
    | lower and not confirmed | `water` |
    | lower, and the check is not used in this recording | `undecided` |
@@ -133,20 +247,18 @@ Output: cleaned adc1 / adc2 (baseline = 0, in counts), sigma per channel, and wh
 
    The lag differs per recording (adc1 is 18–33 ms earlier in the 2025 known-volume recordings and
    9–14 ms later in the tumour ones), so it is measured on the dyed pieces of each recording.
-   The chance rate is measured per recording by shifting adc1 by 2–20 s. The check is not used if the
-   chance rate is above 20%, or if adc1 hardly responds (Part A step 3).
-
-4. **Features**: a piece spans from 30 ms before its first peak to 30 ms after its last peak.
-   For each piece: start, end, duration, number of peaks, max height, and area (sum of the positive
-   signal, counts x ms).
-
+   The chance rate is measured by shifting adc1 by 2–20 s. The check is not used if the chance rate is
+   above 20%, or if adc1 hardly responds (Part A step 3).
+4. **Features**: a piece spans from 30 ms before its first peak to 30 ms after its last peak. For each
+   piece: start, end, duration, number of peaks, max height, and area (sum of the positive signal,
+   counts x ms).
 5. **Amount**: `amount()` adds up the area of the `dyed` and `solid_no_dye` pieces, over the whole
-   recording or over a time range (pieces that start in it). The area is the main measure of the amount
-   of tissue. The number of pieces is given for reference only, because it stops growing when pieces
-   merge in dense suctions. There is no ml value yet: the area per ml depends on the dye concentration
-   and on re-suction.
+   recording or a time range. The area is the main measure of the amount of tissue; the number of
+   pieces is for reference only, because it stops growing when pieces merge in dense suctions.
 
-Output: a table with one row per piece, the peak times for plotting, and the amount measures.
+**Limitations:** there is no ml value yet, because the area per ml depends on the dye concentration and
+on re-suction. The thresholds (68.9 counts, 1 s, ±20 ms) were chosen on the 2025 recordings; the analysis
+behind them is summarised in [`core/README.md`](core/README.md).
 
 ## Contributions
 
