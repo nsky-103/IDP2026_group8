@@ -179,20 +179,14 @@ Details and the reasons for each value: [`core/README.md`](core/README.md) and t
 
 ## Contributions
 
-Who did what, per file. When code is based on another member's idea, the exact lines are marked in the
-file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
+One row per component. When code is based on another member's idea, the exact lines are marked in the
+file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`. Details are in the git history.
 
-| Part | Files | Who |
-|---|---|---|
-| Visualizer app | `visualizer/` | tut-morimoto, KeitoTsubaki (see git history) |
-| Fast CSV access: row index, zoomed windows, 1 kHz summary | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
-| Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
-| Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features, amount (total area) | `core/detection.py` | Sora |
-| Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
-| Cache of the Part A output ([#17](https://github.com/nsky-103/IDP2026_group8/issues/17)) | `core/pipeline.py` (`save_part_a`, `load_part_a`) | tut-morimoto |
-| Dropping idle blocks before sigma (#3) | `core/preprocessing.py` (marked inside `quiet_sigma`) | Sora |
-| adc1 response check, `undecided` label (#4) | `core/preprocessing.py`, `core/detection.py` | Sora |
-| Pipeline and command-line runner | `core/pipeline.py`, `tools/run_pipeline.py` | Sora |
-
-The analysis behind the values (no-dye level 68.9, 1 s gap, ±20 ms) was done by Sora outside this
-repository; the results are summarised in [`core/README.md`](core/README.md).
+| Component | Files | Who | What |
+|---|---|---|---|
+| Visualizer | `visualizer/` | tut-morimoto, KeitoTsubaki | The Streamlit app: layout, panels, background loading, plots, detector interface |
+| Data access | `core/fast_io.py`, `tools/benchmark_io.py` | Sora | Parallel CSV reading: row index, exact zoomed windows, 1 kHz summary; speed benchmark |
+| Part A: preprocessing | `core/preprocessing.py` | Unmona, Sora | Unmona: filters, ALS baseline and sigma (original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`) and their speed-up. Sora: moved it into this repository, idle-block handling (#3), adc1 response check (#4) |
+| Part B: detection | `core/detection.py` | Sora | Peaks, grouping into pieces, labels (no-dye level, two-channel check), features, amount. The analysis behind the values (68.9 counts, 1 s, ±20 ms) was done by Sora outside this repository (summary in [`core/README.md`](core/README.md)) |
+| Pipeline and cache | `core/pipeline.py`, `tools/run_pipeline.py` | Sora, Unmona, tut-morimoto | Sora: pipeline and command-line runner. Unmona: idea of caching the reduced data (`idp/fast.py`). tut-morimoto: cache of the Part A output (#17) |
+| Documentation | `README.md`, `core/README.md`, `visualizer/README.md` | Sora, KeitoTsubaki, tut-morimoto | Sora: `README.md` and `core/README.md`. KeitoTsubaki: setup, usage and viewer guide. tut-morimoto, KeitoTsubaki: `visualizer/README.md` |
