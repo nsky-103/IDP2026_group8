@@ -18,7 +18,7 @@ Contents: [Requirements](#requirements) · [Setup](#setup) · [Data](#data-infor
 | Python | 3.11 (other 3.10+ versions are likely to work but are not tested) |
 | OS | Tested on Windows 11 and macOS |
 | Memory | 8 GB is enough; the 7.6 GB recording peaks at about 4.6 GB (3.6 GB main + 0.26 GB per worker) |
-| Disk | Cache of about 270 MB per 4.7 h recording (outside the repository, see [Cache](#cache)) |
+| Disk | Cache of about 270 MB per 4.7 h recording, in `~/.cache/idp2026` (outside the repository; safe to delete) |
 | Packages | `visualizer/requirements.txt`: numpy, pandas, scipy, pybaselines, streamlit, plotly, matplotlib, pyarrow, numba |
 
 ## Setup
@@ -98,22 +98,6 @@ Open http://localhost:8501 in the browser, then:
 
 The same analysis can also be run without the viewer: `python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER`
 (options: `python tools/run_pipeline.py --help`).
-
-### Cache
-
-The first open of a recording builds a row index, the 1 kHz summary and the Part A output and saves them in
-`~/.cache/idp2026` (change it with the environment variable `IDP_CACHE_DIR`). Later opens read them from
-there. The Part A file name includes a hash of the Part A parameters, so changing a parameter runs Part A
-again. Delete the folder to free the space.
-
-### Troubleshooting
-
-| Problem | Cause / fix |
-|---|---|
-| `streamlit: command not found` / `ModuleNotFoundError` | The virtual environment is not activated, or `pip install -r visualizer/requirements.txt` was not run |
-| First load is slow even for a small file (about 20 s on Windows) | Worker processes start and numba compiles once; the next load of the same file uses the cache (0.1 s) |
-| `Expected a header line like 'adc1,adc2'` | The file is not a Marginum CSV, or its header was removed |
-| Browser does not open | Open http://localhost:8501 by hand; if the port is taken, Streamlit prints the port it used |
 
 ## Expected result
 
