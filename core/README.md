@@ -6,10 +6,10 @@ Code shared by the visualizer and scripts. No UI code here.
 
 | Step | Function | 7.6 GB / 4.7 h, 4 workers |
 |---|---|---|
-| Rough overview (min/max at 2000 places) | `preview(csv)` | 0.7 s |
-| Byte offset ↔ row number index | `build_index(csv)` | 3 s |
-| Exact samples of a zoomed window | `read_window(idx, start_s, end_s)` | 10 s: 0.04 s, 60 s: 0.13 s |
-| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 4.2 s with numba (7.9 s pyarrow, 11 s pandas); 3.6 s with 8 workers |
+| Rough overview (min/max at 2000 places) | `preview(csv)` | 0.2 s |
+| Byte offset ↔ row number index | `build_index(csv)` | 3.7 s |
+| Exact samples of a zoomed window | `read_window(idx, start_s, end_s)` | 10 s: 0.02 s, 60 s: 0.09 s |
+| 1 kHz mean / min / max of the whole file | `summarize(idx)` | 4.6 s with numba (7.9 s pyarrow, 11 s pandas); 3.6 s with 8 workers |
 
 Measured on a MacBook (8 cores) with the file already read once. Peak memory about 2.2 GB in total
 (0.85 GB main process + about 0.35 GB per worker), well within a 16 GB laptop.
@@ -55,9 +55,9 @@ r["clean"]     # cleaned 1 kHz adc1 / adc2 and sigma per channel
 | Part A: median + Savitzky-Golay + ALS, sigma (quietest 10% of 200 ms blocks, idle blocks dropped) | `preprocessing` | Unmona's `idp/method.py`; idle-block drop by Sora (#3) |
 | Part B: peaks, pieces, labels, features | `detection` | Sora's rules, unchanged |
 
-The cache (row index + 1 kHz summary, about 270 MB for 4.7 h) goes to `~/.cache/idp2026`
-(change with the environment variable `IDP_CACHE_DIR`). Cleaning and detection always run again,
-so changed parameters take effect.
+The cache (row index + 1 kHz summary + Part A output, about 270 MB for 4.7 h) goes to `~/.cache/idp2026`
+(change with the environment variable `IDP_CACHE_DIR`). The Part A file name includes a hash of
+`preprocessing.PARAMS`, so changed Part A parameters run Part A again. Detection (Part B) always runs again.
 
 ### Part B rules (`detection.py`)
 
