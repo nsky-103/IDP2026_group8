@@ -81,35 +81,23 @@ when the course ends.
 
 ## How to run
 
-With the virtual environment activated, from the repository root.
-
-### Command-line analysis
-
-One recording, or every `*.csv` under a folder:
-
-```bash
-python tools/run_pipeline.py "PATH/TO/5. suction_HIGH_CONC_1ml_and_no_resuction.csv"
-```
-
-| Option | Effect |
-|---|---|
-| `--out DIR` | Also write `DIR/<name>.pieces.csv` (one row per piece). Keep `DIR` outside the repository. |
-| `--no-cache` | Do not read or write the cache (always reads the CSV again) |
-| `--workers N` | Number of worker processes (default: one per CPU core, at most 8) |
-
-### Interactive viewer
+With the virtual environment activated, from the repository root:
 
 ```bash
 streamlit run visualizer/app.py
 ```
 
-Open http://localhost:8501 in the browser. Enter the file path rather than uploading the file: browser
-upload of multi-GB files is slow (the larger upload limit in `visualizer/.streamlit/config.toml` only
-applies when started from inside `visualizer/`). Then:
+Open http://localhost:8501 in the browser, then:
 
-1. Enter the CSV path → **Load** (a rough overview appears first, the exact 1 kHz data follows in the background)
-2. When the run shows *ready*: keep the algorithm `Method B · core Part A/B` → **Detect peaks**
-3. Click a piece in the events list (or a heatmap cell) to zoom to it
+1. **Import** (left column): click **Browse…** and pick a CSV, or open *…or paste a local path* and
+   paste the path → **Load**. Only the path is used, so multi-GB files are not copied.
+   A rough overview appears first; the exact 1 kHz data follows in the background.
+2. When the run shows *ready*: keep the algorithm `Method B · core Part A/B` → **Detect peaks**.
+3. Click a piece in the events list (right column) or a heatmap cell to zoom to it. Use the window-size
+   slider and the zoom / pan buttons to move around.
+
+The same analysis can also be run without the viewer: `python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER`
+(options: `python tools/run_pipeline.py --help`).
 
 ### Cache
 
@@ -122,30 +110,24 @@ again. Delete the folder to free the space.
 
 | Problem | Cause / fix |
 |---|---|
-| `ModuleNotFoundError` | The virtual environment is not activated, or `pip install -r visualizer/requirements.txt` was not run |
-| First open is slow even for a small file (about 20 s on Windows) | Worker processes start and numba compiles once; the second open uses the cache (0.1 s) |
+| `streamlit: command not found` / `ModuleNotFoundError` | The virtual environment is not activated, or `pip install -r visualizer/requirements.txt` was not run |
+| First load is slow even for a small file (about 20 s on Windows) | Worker processes start and numba compiles once; the next load of the same file uses the cache (0.1 s) |
 | `Expected a header line like 'adc1,adc2'` | The file is not a Marginum CSV, or its header was removed |
-| Path with spaces or brackets not found | Put the path in quotes |
+| Browser does not open | Open http://localhost:8501 by hand; if the port is taken, Streamlit prints the port it used |
 
 ## Expected result
 
-`run_pipeline.py` prints one line per recording: length, number of pieces per label, noise level sigma,
-whether adc1 is used, and the time of each step. For recording 5 (measured on Windows 11):
+The screen looks like the screenshot at the top:
 
-```
-5. suction_HIGH_CONC_1ml_and_no_resuction.csv   1.2 min  pieces   10  {'dyed': 10}  sigma 1.62  adc1 used  |  read CSV -> 1 kHz 21.0 s  Part A: clean 0.0 s  Part B: pieces 0.0 s
-```
+- **Center:** the whole recording with a marker for each piece (top), and the zoomed signal of both
+  channels with the selected piece (bottom).
+- **Right:** a heatmap of signal activity over time, the selected piece with its label (`dyed`,
+  `solid_no_dye`, …) and amplitude, and the list of pieces, largest first.
+- **Left:** the loaded run with its number of events; `water` / `undecided` pieces are shown in gray as
+  rejected.
 
-Running it again reads from the cache (`read (cache) 0.1 s`). With `--out`, the pieces file looks like this:
-
-```
-start_s,end_s,duration_s,n_peaks,max_height,area,confirmed,label
-7.594,26.475,18.881,95,1273.5,945692.0,True,dyed
-27.668,28.303,0.635,7,388.8,21738.0,True,dyed
-...
-```
-
-Pieces per recording for the known-volume set (`result.json`):
+For recording 5 (the small first-try file), detection finds **10 pieces, all `dyed`**.
+Number of pieces per recording for the known-volume set, to compare with (`result.json`):
 
 | # | Pieces | `dyed` | `solid_no_dye` | `water` |
 |---|---|---|---|---|
@@ -159,7 +141,8 @@ Pieces per recording for the known-volume set (`result.json`):
 | 8 | 14 | 13 | 0 | 1 |
 | 9 | 9 | 8 | 0 | 1 |
 
-Time for the largest recording (7.6 GB / 4.7 h) on a MacBook, 4 workers, numba and pyarrow installed:
+Loading and detection time for the largest recording (7.6 GB / 4.7 h) on a MacBook, 4 workers, numba and
+pyarrow installed:
 
 | Step | First open | Next open |
 |---|---|---|
@@ -196,7 +179,7 @@ The viewer and the command line use the same `core` code, so they give the same 
 ## Method summary
 
 ```
-tools/run_pipeline.py  main()
+viewer (visualizer/load_jobs.py, detectors.py)  or  tools/run_pipeline.py
   └─ core/pipeline.py  analyse()
        ├─ 1. open_recording()            CSV -> row index + 1 kHz summary (or read from the cache)
        ├─ 2. preprocessing.preprocess()  Part A: median -> Savitzky-Golay -> ALS baseline -> sigma
