@@ -8,7 +8,7 @@ interactive viewer.
 ![Interactive viewer: full-recording overview, zoomed detail with detected pieces, activity heatmap and the selected piece](images/viewer.png)
 
 Contents: [Requirements](#requirements) · [Setup](#setup) · [Data](#data-information) ·
-[How to run](#how-to-run) · [Expected result](#expected-result) · [Code structure](#code-structure) ·
+[How to run](#how-to-run) · [Code structure](#code-structure) ·
 [Method summary](#method-summary) · [Contributions](#contributions)
 
 ## Requirements
@@ -87,53 +87,48 @@ With the virtual environment activated, from the repository root:
 streamlit run visualizer/app.py
 ```
 
-Open http://localhost:8501 in the browser, then:
+Open http://localhost:8501 in the browser. Quick start:
 
-1. **Import** (left column): click **Browse…** and pick a CSV, or open *…or paste a local path* and
-   paste the path → **Load**. Only the path is used, so multi-GB files are not copied.
-   A rough overview appears first; the exact 1 kHz data follows in the background.
-2. When the run shows *ready*: keep the algorithm `Method B · core Part A/B` → **Detect peaks**.
-3. Click a piece in the events list (right column) or a heatmap cell to zoom to it. Use the window-size
-   slider and the zoom / pan buttons to move around.
+1. **Browse…** (top left) → pick `5. suction_HIGH_CONC_1ml_and_no_resuction.csv`.
+2. Wait until the run shows *ready* → **Detect peaks**.
+3. Click a piece in the **Events** list (right) → **Show in plot** to zoom to it.
 
 The same analysis can also be run without the viewer: `python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER`
 (options: `python tools/run_pipeline.py --help`).
 
-## Expected result
+### Using the viewer
 
-The screen looks like the screenshot at the top:
+The page has three columns: settings on the left, plots in the center, results on the right.
 
-- **Center:** the whole recording with a marker for each piece (top), and the zoomed signal of both
-  channels with the selected piece (bottom).
-- **Right:** a heatmap of signal activity over time, the selected piece with its label (`dyed`,
-  `solid_no_dye`, …) and amplitude, and the list of pieces, largest first.
-- **Left:** the loaded run with its number of events; `water` / `undecided` pieces are shown in gray as
-  rejected.
+**Left — load and settings**
 
-For recording 5 (the small first-try file), detection finds **10 pieces, all `dyed`**.
-Number of pieces per recording for the known-volume set, to compare with (`result.json`):
+| Control | What it does |
+|---|---|
+| **Browse…** | Opens the file dialog. Only the path is passed, so multi-GB files are not copied. |
+| *…or paste a local path* → **Load** | Same, by typing or pasting the path (quotes are removed). |
+| **Runs** | Every loaded recording, with its state (*preview* → *ready*) and number of events. Click one to switch to it. |
+| **Channels** | Show or hide Sensor 1 (adc1) and Sensor 2 (adc2) in the plots. |
+| **Algorithm** / **Detection parameters** | `Method B · core Part A/B` is the method described below. Its parameters (peak prominence in x sigma, max gap inside one piece, no-dye level) can be changed here; the defaults are the tuned values. |
+| **Show rejected / water (gray)** | Also show `water` and `undecided` pieces, in gray. |
+| **Detect peaks** | Runs detection. Enabled once the 1 kHz summary is ready (a few seconds; the first load of a large file takes longer). |
+| **Heatmap** | Row length (10 s – 5 min), cells per row, and what the colour shows (signal activity or number of detected pieces). |
+| **Display settings** | Sample rate (50 kHz), max plot points, and how the detail plot is thinned (LTTB keeps the peaks). |
 
-| # | Pieces | `dyed` | `solid_no_dye` | `water` |
-|---|---|---|---|---|
-| 1 | 83 | 45 | 11 | 27 |
-| 2 | 41 | 39 | 0 | 2 |
-| 3 | 26 | 19 | 1 | 6 |
-| 4 | 22 | 13 | 2 | 7 |
-| 5 | 10 | 10 | 0 | 0 |
-| 6 | 17 | 15 | 0 | 2 |
-| 7 | 24 | 14 | 2 | 8 |
-| 8 | 14 | 13 | 0 | 1 |
-| 9 | 9 | 8 | 0 | 1 |
+**Center — plots**
 
-Loading and detection time for the largest recording (7.6 GB / 4.7 h) on a MacBook, 4 workers, numba and
-pyarrow installed:
+| Area | How to use it |
+|---|---|
+| **Full recording** (top) | The whole recording with a triangle for each detected piece. The black frame is the part shown below: drag a box on the chart or move the slider handles to change it. **Window size** sets its width. |
+| **Detail** (middle) | Exact samples of both channels in the frame, with the pieces marked. Buttons: **Zoom in / out**, **Pan left / right**, **Default** (first 30 s), **Fit all** (whole recording). Drag the plot to pan. |
+| **Activity heatmap** (bottom) | The recording folded into rows (e.g. one row per minute); bright cells = strong signal. Click a cell to jump there. |
 
-| Step | First open | Next open |
-|---|---|---|
-| 1. CSV -> 1 kHz | 8.4 s (row index 3.7 s + summary 4.6 s) | about 0.1 s (cache) |
-| 2. Part A | 1.6 s | about 0 s (cache) |
-| 3. Part B | 1.9 s | 1.9 s |
-| **Total** | **12.5 s** | **2.0 s** |
+**Right — results**
+
+| Area | What it shows |
+|---|---|
+| **Selected event** | Label (`dyed`, `solid_no_dye`, …), amplitude and time of the selected piece. |
+| **Events** | Number of accepted pieces, the **amount in view** (total area of the valid pieces that start in the current frame), and the pieces largest first. **Show in plot** zooms to one. |
+| **Detection summary** | Counts per label, step timings, and the full table of pieces. |
 
 ## Code structure
 
