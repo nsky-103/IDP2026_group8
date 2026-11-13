@@ -61,7 +61,7 @@ The cache (row index + 1 kHz summary + Part A output, about 270 MB for 4.7 h) go
 
 ### Part B rules (`detection.py`)
 
-- Peaks: prominence > 10 x sigma on the cleaned signal.
+- Peaks: prominence > 10 x sigma on the cleaned signal; peaks in the first and last 0.5 s are dropped.
 - Pieces: peaks less than 1 s apart are one piece (one aspirated tissue piece).
 - Label from the largest peak of the piece: higher than the no-dye level (68.9 counts, top 0.1% of
   water-only peaks) -> `dyed`; otherwise confirmed by adc1 -> `solid_no_dye`; otherwise `water`.
@@ -70,3 +70,20 @@ The cache (row index + 1 kHz summary + Part A output, about 270 MB for 4.7 h) go
   chance rate (adc1 shifted by 2–20 s). Chance rate above 20%: the check is not used, dim pieces `undecided`.
 - If adc1 hardly responds (adc1 / adc2 at the largest peaks below 0.1, as in the 2023 test signals),
   adc1 is not used and dim pieces are `undecided`.
+- The channel lag differs per recording: adc1 is 18–33 ms earlier in the 2025 known-volume recordings and
+  9–14 ms later in the tumour ones, so it is measured per recording.
+- Features: a piece spans from 30 ms before its first peak to 30 ms after its last peak. Start, end,
+  duration, number of peaks, max height and area (sum of the positive signal, counts x ms).
+- Amount (`amount()`): total area of the `dyed` and `solid_no_dye` pieces, over the whole recording or the
+  pieces that start in a time range. The number of pieces is for reference only: it stops growing when
+  pieces merge in dense suctions.
+
+### Part A rules (`preprocessing.py`)
+
+- 1 kHz means keep peak height (99.3–99.9%) and area, because the signal has no content above about 500 Hz.
+- `clean_channel()`: median filter (3 samples) -> Savitzky-Golay (7 samples, order 3) -> minus `baseline()`
+  (ALS fitted on 10 Hz block means, interpolated back to 1 kHz).
+- `quiet_sigma()`: RMS of the std of the quietest 10% of 200 ms blocks. Idle blocks (std below half the
+  median block std, i.e. no flow) are dropped first; otherwise recordings with long idle periods get a sigma
+  below the water wiggles and pieces merge (#3).
+- `adc1_response()`: median adc1 / adc2 at the 50 largest adc2 peaks (#4).

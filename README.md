@@ -158,72 +158,24 @@ The viewer and the command line use the same `core` code, so they give the same 
 ## Method summary
 
 ```
-viewer (visualizer/load_jobs.py, detectors.py)  or  tools/run_pipeline.py
-  └─ core/pipeline.py  analyse()
-       ├─ 1. open_recording()            CSV -> row index + 1 kHz summary (or read from the cache)
-       ├─ 2. preprocessing.preprocess()  Part A: median -> Savitzky-Golay -> ALS baseline -> sigma
-       └─ 3. detection.find_pieces()     Part B: peaks -> pieces -> labels -> features -> amount
+CSV (50 kHz)  ->  1 kHz summary  ->  Part A: clean  ->  Part B: find and judge pieces  ->  amount
+               core/fast_io.py    core/preprocessing.py  core/detection.py
 ```
 
-### 1. Read the CSV and reduce it to 1 kHz — `core/fast_io.py`
+1. **Reduce to 1 kHz**: the CSV is read in parallel blocks and averaged over every 50 samples. The
+   signal has no content above about 500 Hz, so peak height and area are kept.
+2. **Part A, clean**: median + Savitzky-Golay filters remove spikes and small wiggles, an ALS baseline
+   removes the slow drift, and the noise level sigma is taken from the quietest parts of the recording.
+3. **Part B, find and judge pieces**: peaks higher than 10 x sigma, closer than 1 s, are grouped into one
+   piece (one aspirated tissue piece). Each piece is labelled:
+   - `dyed`: higher than the no-dye level (68.9 counts)
+   - `solid_no_dye`: lower, but adc1 also shows a peak at the same time (tissue without dye)
+   - `water`: lower and not confirmed by adc1
+   - `undecided`: lower, and adc1 cannot be used in this recording
+4. **Amount**: the area of the `dyed` and `solid_no_dye` pieces is summed up as a measure of the amount of
+   tissue. There is no ml value yet, because the area per ml depends on the dye concentration.
 
-1. `build_index()` splits the file into 1024 blocks and counts the lines of each block in parallel, so
-   any row can be found by its byte position.
-2. `summarize()` reads the blocks in parallel and takes the mean, min and max of every 50 samples
-   (50 kHz -> 1 kHz; parsed with numba, else pyarrow, else pandas).
-   - The **mean** is the input for the analysis. The signal has no content above about 500 Hz, so 1 ms
-     means keep peak height (99.3–99.9%) and area.
-   - **Min and max** are used to draw the whole recording without hiding narrow peaks.
-
-### 2. Part A: clean the signal — `core/preprocessing.py`
-
-For adc1 and adc2:
-
-1. `clean_channel()`
-   - median filter (3 samples): removes single-sample spikes
-   - Savitzky-Golay filter (7 samples, order 3): smooths small wiggles but keeps the peak shape
-   - minus `baseline()`: the signal is averaged to 10 Hz, `als()` (asymmetric least squares) fits a
-     slow line under the peaks, and the line is interpolated back to 1 kHz
-2. `quiet_sigma()`: noise level sigma = RMS of the std of the quietest 10% of 200 ms blocks.
-   Idle blocks (std below half the median block std, i.e. no flow) are dropped first. Otherwise
-   recordings with long idle periods get a sigma below the water wiggles, and pieces merge
-   ([#3](https://github.com/nsky-103/IDP2026_group8/issues/3)).
-3. `adc1_response()`: median adc1 / adc2 at the 50 largest adc2 peaks. If it is below 0.1 (as in the
-   2023 test signals, where adc1 hardly responds), adc1 is not used for the two-channel check
-   ([#4](https://github.com/nsky-103/IDP2026_group8/issues/4)).
-
-### 3. Part B: find and judge the pieces — `core/detection.py`
-
-1. **Peaks**: prominence above 10 x sigma, on adc2 and on adc1. Peaks in the first and last 0.5 s are dropped.
-2. **Pieces**: peaks less than 1 s apart belong to the same piece (one aspirated tissue piece).
-3. **Label**, from the largest peak of the piece:
-
-   | Condition | Label |
-   |---|---|
-   | higher than the no-dye level (68.9 counts, top 0.1% of water-only peaks) | `dyed` |
-   | lower, but confirmed by adc1 (two-channel check below) | `solid_no_dye` (tissue without dye) |
-   | lower and not confirmed | `water` |
-   | lower, and the check is not used in this recording | `undecided` |
-
-   **Two-channel check** ([#11](https://github.com/nsky-103/IDP2026_group8/issues/11)): the piece is
-   confirmed if there is an adc1 peak
-   - within ±20 ms of the top adc2 peak, after shifting by the recording's channel lag, and
-   - at least 5% as high as that adc2 peak (so small adc1 noise peaks do not pass by chance).
-
-   The lag differs per recording (adc1 is 18–33 ms earlier in the 2025 known-volume recordings and
-   9–14 ms later in the tumour ones), so it is measured on the dyed pieces of each recording.
-   The chance rate is measured by shifting adc1 by 2–20 s. The check is not used if the chance rate is
-   above 20%, or if adc1 hardly responds (Part A step 3).
-4. **Features**: a piece spans from 30 ms before its first peak to 30 ms after its last peak. For each
-   piece: start, end, duration, number of peaks, max height, and area (sum of the positive signal,
-   counts x ms).
-5. **Amount**: `amount()` adds up the area of the `dyed` and `solid_no_dye` pieces, over the whole
-   recording or a time range. The area is the main measure of the amount of tissue; the number of
-   pieces is for reference only, because it stops growing when pieces merge in dense suctions.
-
-**Limitations:** there is no ml value yet, because the area per ml depends on the dye concentration and
-on re-suction. The thresholds (68.9 counts, 1 s, ±20 ms) were chosen on the 2025 recordings; the analysis
-behind them is summarised in [`core/README.md`](core/README.md).
+Details and the reasons for each value: [`core/README.md`](core/README.md) and the report (`report/`).
 
 ## Contributions
 
