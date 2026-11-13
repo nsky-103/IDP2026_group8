@@ -5,6 +5,8 @@ reads the raw two-channel recordings, finds each aspirated tissue piece, judges 
 undyed tissue or only water, and sums up the amount of tissue. It has a command-line analysis and an
 interactive viewer.
 
+![Interactive viewer: full-recording overview, zoomed detail with detected pieces, activity heatmap and the selected piece](images/viewer.png)
+
 Contents: [Requirements](#requirements) · [Setup](#setup) · [Data](#data-information) ·
 [How to run](#how-to-run) · [Expected result](#expected-result) · [Code structure](#code-structure) ·
 [Method summary](#method-summary) · [Contributions](#contributions)
@@ -186,6 +188,7 @@ visualizer/              Streamlit viewer (details: visualizer/README.md)
   requirements.txt       dependencies of the whole project
 report/                  course report (LaTeX: report.tex + sections/)
 result.json              last benchmark: timings and piece counts per test recording
+images/                  screenshots used in this README
 ```
 
 The viewer and the command line use the same `core` code, so they give the same pieces.
