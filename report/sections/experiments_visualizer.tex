@@ -1,0 +1,9 @@
+\section{Experiments}
+
+To check that LTTB is suitable for Marginum detail plots, we took a \SI{20}{\second} window
+of Sensor~2 from a suction recording and compared three representations at the same
+horizontal span: a dense reference (\(\sim\)8\,k samples in the window), LTTB reduced to
+300 points, and every-$n$th stride reduced to about 300 points. The same LTTB
+implementation as in the Streamlit detail view (\texttt{lttb.py}, after
+Steinarsson~\cite{steinarsson2013}) was used. Peak preservation was judged visually and by
+the maximum amplitude retained under each downsampler.
