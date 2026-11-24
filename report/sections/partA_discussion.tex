@@ -1,0 +1,24 @@
+% Part A. Included from discussion.tex with \input{sections/partA_discussion}.
+\subsection{Preprocessing and noise level}
+\label{sec:partA-discussion}
+\subsubsection{The filters lower the peaks a little}
+The median and Savitzky--Golay filters remove noise, but they also trim the top of narrow
+peaks: the 20 tallest peaks of the Big pieces recording keep a median of 96\,\% of their height,
+and the worst one only 59\,\%. The heights and areas used for the amount are therefore a little
+too low for narrow peaks. A shorter Savitzky--Golay window, or no median filter, would keep the
+peaks but lets more noise through, and we did not test which setting is best for the amount.
+
+\subsubsection{One setting, one noise level per recording}
+The noise level $\sigma$ is measured from each recording, which is needed: it differs by a factor
+of 8 (0.51--4.03 counts), and one common value changes the piece count in 23 of 28 recordings.
+However, $\sigma$ is only measured correctly if the recording has quiet parts. In a
+recording with flow all the time, the quietest blocks still contain signal, $\sigma$ is too high
+and small pieces are lost. The factor $k = 10$ is the same for all recordings. The piece count
+changes with $k$ (Table~\ref{tab:k-sweep}), and with no known number of pieces in the dense
+recordings we cannot say which $k$ is right. The recording with the highest $\sigma$ (4.03, a
+tumour recording) shows that a high noise level is possible and should be checked by eye.
+
+\subsubsection{What would fix them}
+A recording with known pieces and several flow rates would show which $k$ gives the right count.
+A noise level measured from a short recording without suction at the start of each session would
+not depend on quiet blocks inside the suction.

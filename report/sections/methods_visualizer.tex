@@ -29,3 +29,67 @@ rows are drawn so the page stays responsive). Selecting a row centres the detail
 that event's peak time (a fixed half-width of a few seconds). A selected-event summary shows
 label, amplitude, polarity and time. Size and amount estimates are not shown in this list,
 because they are not considered reliable from these signals alone.
+\subsection{Visualizer}
+\label{sec:visualizer-methods}
+% Order follows how a user works with the app:
+% load -> see the whole recording -> zoom in -> find activity -> check the pieces.
+% Authors: Keito = overview, page layout, overview window, activity heatmap;
+%          Kazuki = coarse-first loading, detail window (incl. LTTB), event list.
+
+% ---- Overview (Keito) ----
+% TODO (Keito): purpose and requirements, workflow, why Streamlit + Plotly,
+% architecture (UI in app.py/panels/state.py, Streamlit-free viewport/plots/signal_io/detectors;
+% same core/ code as the command line).
+Large Marginum CSV files are several gigabytes at \SI{50}{\kilo\hertz}, so they cannot be
+loaded and plotted as a single dense series in a browser. We built an interactive
+Streamlit application that loads a recording, shows a coarse overview, and lets the user
+inspect selected time windows in detail.
+
+\subsubsection{Page layout}
+\label{sec:vis-layout}
+% TODO (Keito): three columns (load and settings / plots / results), one module per area
+% in panels/, state kept in state.py, pluggable detectors (common Detection table),
+% each column scrolls on its own. Figure: images/viewer.png.
+
+\subsubsection{Coarse-first loading}
+\label{sec:vis-loading}
+Opening a file first builds a lightweight preview (and a row index) so the overview can
+appear quickly. In the background the recording is reduced to a \SI{1}{\kilo\hertz} summary
+(mean and envelope). After that summary is ready, detection and accurate detail views use
+it; until then the UI remains in a preview state. Index and summary are cached so later
+opens of the same file are much faster.
+
+\subsubsection{Overview window}
+\label{sec:vis-overview}
+% TODO (Keito): full recording with a marker per piece; the frame selects what the detail
+% window shows; drag a box / move the slider handles / window size; limited to 3 minutes
+% (reason: refer to Section~\ref{sec:vis-detail}).
+
+\subsubsection{Detail window}
+\label{sec:vis-detail}
+% TODO (Kazuki): exact samples of both channels in the frame, pieces marked,
+% zoom / pan / default / fit all buttons.
+
+\subsubsection{Detail downsampling with LTTB}
+\label{sec:vis-lttb}
+Even a short detail window can contain tens or hundreds of thousands of samples. Plotting
+every sample is slow and visually cluttered. We therefore downsample the detail traces for
+display with the Largest-Triangle-Three-Buckets (LTTB) algorithm of Steinarsson
+\cite{steinarsson2013} (Algorithm~4.2), implemented in the visualizer as \texttt{lttb.py}.
+
+LTTB partitions the series into buckets and, in each bucket, keeps the point that forms the
+largest triangle with the previously selected point and the average of the next bucket.
+Compared with taking every $n$th sample (stride), LTTB better preserves perceptually
+important peaks and troughs at the same point budget, which matters when reviewing
+fluorescence spikes from aspirated tissue.
+
+\subsubsection{Activity heatmap}
+\label{sec:vis-heatmap}
+% TODO (Keito): recording folded into rows (row length 10 s -- 5 min, cells per row),
+% colour = signal activity or number of pieces; click a cell to move the window there
+% (window jump described once, here or in Section~\ref{sec:vis-events}).
+
+\subsubsection{Event list}
+\label{sec:vis-events}
+% TODO (Kazuki): accepted pieces largest first, amount in view, "Show in plot",
+% selected event and detection summary.

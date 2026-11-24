@@ -12,7 +12,7 @@ Run it from the repository root, with the viewer's environment (visualizer/.venv
   5. Old methods        first viewer (csv module, one process) and a pandas chunked reader
                         (as in udgithubit/IDP scripts/demo_preprocessing_standalone.py);
                         timed on the first SAMPLE_MB of the file, scaled to the whole file
-  6. Summary            pandas (until last week) vs now; peak memory; summary vs the CSV
+  6. Summary            pandas parser vs the fast parser; peak memory; summary vs the CSV
   7. All recordings     (with --all) pieces and labels for every recording under DATA_FOLDER
 
 Layout after udgithubit/IDP scripts/demo_preprocessing_standalone.py: one file, settings at
@@ -169,7 +169,7 @@ def main() -> None:
     method = ("numba" if installed("numba") and size >= fast_io.NUMBA_MIN_BYTES
               else "pyarrow" if installed("pyarrow") else "pandas")
 
-    print("1. This computer")
+    print("1. This computer\n   the computer and the optional speed-ups used for this run")
     info = {"os": f"{platform.system()} {platform.release()}", "python": platform.python_version(),
             "cpu_cores": os.cpu_count(), "ram_gb": round(ram_gb(), 1), "workers": w,
             "numba": installed("numba"), "pyarrow": installed("pyarrow"), "summary_method": method,
@@ -194,46 +194,50 @@ def main() -> None:
         line(f"{label}: total (index + summary + A + B)", t["total"])
         return t, idx, summ
 
-    print("\n2. First open (measured first, so the file is read from disk if it is not in memory)")
+    print("\n2. First open (measured first, so the file is read from disk if it is not in memory)\n"
+          "   time for each step the app runs when a recording is opened for the first time")
     cold, _, _ = open_steps("first")
 
-    print("\n3. Same again, file now in memory")
+    print("\n3. Same again, file now in memory\n"
+          "   the same steps once more, to see how much of section 2 was reading the disk")
     warm, idx, summ = open_steps("in memory")
     if cold["index"] > 1.5 * warm["index"]:
         print(f"  -> section 2 read from disk ({size / 1e6 / cold['index']:,.0f} MB/s): it is a real first open")
     else:
-        print("  -> section 2 was as fast as this: the file was already in memory. For a true first open,"
-              " run `sudo purge` (macOS) or restart, then this script.")
+        print("  -> section 2 was as fast as this: either the file was already in memory, or the disk is"
+              " faster than counting the lines. To be sure, run `sudo purge` (macOS) or restart, then this script.")
     RESULT["first_open_from_disk"] = bool(cold["index"] > 1.5 * warm["index"])
     mid = idx.n_rows / fast_io.DEFAULT_FS_HZ / 2
     for s in WINDOWS_S:
         line(f"zoomed {s} s window (exact samples)", timed(lambda s=s: fast_io.read_window(idx, mid, mid + s))[0])
 
-    print("\n4. Second open, from the app's cache (a temp folder; ~/.cache/idp2026 is not touched)")
+    print("\n4. Second open, from the app's cache (a temp folder; ~/.cache/idp2026 is not touched)\n"
+          "   time to open the same recording again: the 1 kHz data and Part A are read from the cache")
     with tempfile.TemporaryDirectory() as d:
         pipeline.analyse(path, cache_root=Path(d), workers=w)          # fills the temp cache
         t2, r2 = timed(lambda: pipeline.analyse(path, cache_root=Path(d), workers=w))
         line("second open", t2, "  ".join(f"{k} {v:.2f}" for k, v in r2["timings"].items()))
 
     if not args.skip_old:
-        print(f"\n5. Old methods (timed on the first {SAMPLE_MB} MB, file in memory, scaled to {size / 1e9:.1f} GB)")
+        print(f"\n5. Old methods (timed on the first {SAMPLE_MB} MB, file in memory, scaled to {size / 1e9:.1f} GB)\n"
+              "   estimated time to read the whole file with simpler readers, for comparison")
         buf = sample_bytes(path, SAMPLE_MB)
         for name, fn in (("first viewer (csv module, 1 process)", old_viewer),
                          ("pandas chunks (1 process, IDP standalone)", pandas_chunks)):
             dt, _ = timed(lambda fn=fn: fn(buf))
             line(name, dt * size / len(buf), f"(~{len(buf) / 1e6 / dt:,.0f} MB/s, estimate)")
 
-    print("\n6. Summary")
+    print("\n6. Summary\n   the main numbers, memory use, and a check that the 1 kHz data match the CSV")
     os.environ["IDP_NO_PYARROW"] = "1"          # workers inherit it: parse with pandas
     keep = fast_io.NUMBA_MIN_BYTES
     fast_io.NUMBA_MIN_BYTES = 1 << 62           # and no numba
     t_pandas = timed(lambda: fast_io.summarize(idx, workers=w))[0]
     fast_io.NUMBA_MIN_BYTES = keep
     del os.environ["IDP_NO_PYARROW"]
-    RESULT["1 kHz summary (pandas, until last week), in memory"] = round(t_pandas, 3)
-    print(f"  1 kHz summary, file in memory: pandas (until last week) {t_pandas:.2f} s -> {method} {warm['summary']:.2f} s"
+    RESULT["1 kHz summary (pandas parser), in memory"] = round(t_pandas, 3)
+    print(f"  1 kHz summary, file in memory: pandas parser {t_pandas:.2f} s -> {method} {warm['summary']:.2f} s"
           f"  ({t_pandas / warm['summary']:.1f}x faster)")
-    print(f"  first open: {cold['total']:.1f} s{' (from disk)' if RESULT['first_open_from_disk'] else ' (file was in memory)'}"
+    print(f"  first open: {cold['total']:.1f} s{' (from disk)' if RESULT['first_open_from_disk'] else ' (as fast as in memory)'}"
           f";  file in memory: {warm['total']:.1f} s;  second open (cache): {t2:.1f} s")
     own, child = peak_memory_mb()
     print(f"  peak memory: main {own:.0f} MB, largest worker {child:.0f} MB (~{own + w * child:.0f} MB in total;"
@@ -249,7 +253,8 @@ def main() -> None:
     RESULT["summary_matches_csv"] = bool(ok)
 
     if args.all:
-        print(f"\n7. All recordings under {args.all} (cached in {pipeline.DEFAULT_CACHE})")
+        print(f"\n7. All recordings under {args.all} (cached in {pipeline.DEFAULT_CACHE})\n"
+              "   events and labels for every recording")
         RESULT["recordings"] = all_recordings(args.all, w).to_dict("records")
 
     if args.json:

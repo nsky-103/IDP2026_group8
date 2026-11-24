@@ -1,15 +1,16 @@
 # Marginum Signal Visualizer (IDP2026)
 
-Noise reduction + interactive visualization for large Marginum CSV recordings.
+Interactive viewer for large Marginum CSV recordings and the pieces detected in them.
 
-## Scope (this workstream)
+## What it does
 
-- Load CSV / NPY and browse raw windows
-- **Run preprocessing**: downsample → denoise (median + Savitzky–Golay) → baseline
-- Plot cleaned stages (raw / denoised / baseline / corrected)
-- Plot downsampling with **LTTB** (Steinarsson 2013)
-
-Peak / feature detection is **optional** (expander in the sidebar) for teammate algorithms.
+- Opens multi-GB CSV files quickly: a rough overview first, then the exact 1 kHz summary in the
+  background (`core.fast_io`, cached in `~/.cache/idp2026`)
+- Overview of the whole recording, a detail zoom with exact samples, and an activity heatmap
+- Runs a detection algorithm from the *Algorithm* menu. The default, `Method B · core Part A/B`, is the
+  same analysis as `tools/run_pipeline.py` (see the [root README](../README.md#processing-flow))
+- Shows the detected pieces as an events list and on the plots; click one to zoom to it
+- The detail plot is downsampled for display with **LTTB** (Steinarsson 2013)
 
 ## Plot downsampling (LTTB)
 
@@ -21,7 +22,7 @@ Peak / feature detection is **optional** (expander in the sidebar) for teammate 
 
 ```bash
 cd visualizer
-python3.11 -m venv .venv  # Windows: py 3.11 -m venv .venv
+python3.11 -m venv .venv  # Windows: py -3.11 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run app.py
