@@ -1,0 +1,47 @@
+% Owner: Keito (first paragraph by Kazuki). Intro of \subsection{Visualizer}, no heading.
+Large Marginum CSV files are several gigabytes at \SI{50}{\kilo\hertz}, so they cannot be
+loaded and plotted as a single dense series in a browser. We built an interactive
+Streamlit application that loads a recording, shows a coarse overview, and lets the user
+inspect selected time windows in detail.
+
+The viewer has three aims: to let the user check the detected pieces against the raw
+signal, to find where in a long recording the suctions happen, and to try detection
+parameters without leaving the browser. From this we set three requirements: something
+must be on screen within seconds even for a multi-gigabyte file; a zoomed view must show
+the exact samples, not an approximation; and every detected piece must be reachable with
+one click. A typical session follows the order of this section: load a recording
+(Section~\ref{sec:vis-loading}), look at the whole recording and choose a time window
+(Section~\ref{sec:vis-overview}), read the window in detail (Section~\ref{sec:vis-detail}),
+find active periods (Section~\ref{sec:vis-heatmap}), and check the detected pieces one by
+one (Section~\ref{sec:vis-events}).
+
+We used Streamlit because the whole tool can be written in Python and can call the
+analysis code in \texttt{core/} directly, so the viewer and the command line
+(\texttt{tools/run\_pipeline.py}) give the same pieces. The plots are drawn with Plotly,
+except the overview strip, which is a small custom component drawn on an HTML canvas
+(Section~\ref{sec:vis-overview}). Streamlit runs the whole script again after every user
+action; the consequences of this for the design are discussed where they matter.
+
+The code is split into a user-interface part and a part that does not depend on
+Streamlit (Table~\ref{tab:vis-modules}). Only the first part reads or writes Streamlit's
+session state, so the viewing-window arithmetic, the figures and the detectors can be
+tested and reused without the app.
+
+\begin{table}[H]
+  \centering
+  \caption{Modules of the visualizer.}
+  \label{tab:vis-modules}
+  \begin{tabular}{lll}
+    \toprule
+    Part & Files & Uses Streamlit \\
+    \midrule
+    Page layout & \texttt{app.py} & yes \\
+    One area of the page each & \texttt{panels/} & yes \\
+    State kept between user actions & \texttt{state.py} & yes \\
+    Viewing-window arithmetic & \texttt{viewport.py} & no \\
+    Figures, LTTB & \texttt{plots.py}, \texttt{lttb.py} & no \\
+    Reading the recording & \texttt{signal\_io.py}, \texttt{load\_jobs.py} & no \\
+    Detection algorithms & \texttt{detectors.py} & no \\
+    \bottomrule
+  \end{tabular}
+\end{table}

@@ -1,0 +1,9 @@
+% Owner: Kazuki
+\subsubsection{Loading}
+\label{sec:vis-loading}
+Large Marginum CSV files are several gigabytes at \SI{50}{\kilo\hertz}. Opening a file
+therefore follows a coarse-first path in a background job: a lightweight preview (and row
+index) appears first so the user can browse immediately; the recording is then reduced to a
+\SI{1}{\kilo\hertz} summary (mean and envelope). Detection and accurate detail views wait
+until that summary is ready. The index and summary are cached on disk so later opens of the
+same file skip most of the work.
