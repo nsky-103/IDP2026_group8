@@ -1,4 +1,4 @@
-"""Left panel, below the runs: channels, detection, heatmap and display settings."""
+"""Left panel, below the runs: channels, heatmap, detection and display settings."""
 
 from __future__ import annotations
 
@@ -37,6 +37,15 @@ def render() -> Settings:
     channels = [name for i, name in enumerate((plots.SENSOR1, plots.SENSOR2), start=1)
                 if st.checkbox(f"Ch{i} · {name}", value=True)]
 
+    # Heatmap controls above Detection (layout preference: browse activity before detecting).
+    section("Heatmap")
+    row_label = st.selectbox("Row length", list(heatmap.ROW_CHOICES), index=2, key="hm_row")
+    cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
+    metrics = list(heatmap.METRICS)
+    if not state.detection(state.active_run() or ""):
+        metrics.remove(heatmap.EVENTS_METRIC)
+    metric = st.selectbox("Colour by", metrics, key="hm_metric")
+
     section("Detection")
     detector = detectors.DETECTORS[st.selectbox("Algorithm", list(detectors.DETECTORS))]
     with st.expander("Detection parameters"):
@@ -50,14 +59,6 @@ def render() -> Settings:
                                help="Enabled after the 1 kHz summary is ready.")
     if run and not state.is_ready(run):
         st.caption("Waiting for 1 kHz summary…")
-
-    section("Heatmap")
-    row_label = st.selectbox("Row length", list(heatmap.ROW_CHOICES), index=2, key="hm_row")
-    cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
-    metrics = list(heatmap.METRICS)
-    if not state.detection(state.active_run() or ""):
-        metrics.remove(heatmap.EVENTS_METRIC)
-    metric = st.selectbox("Colour by", metrics, key="hm_metric")
 
     with st.expander("Display settings"):
         fs_hz = st.number_input("Sample rate (Hz)", value=float(signal_io.DEFAULT_FS_HZ),

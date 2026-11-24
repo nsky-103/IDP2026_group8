@@ -1,4 +1,4 @@
-"""Centre, bottom: whole recording folded into rows; click a cell to view that time."""
+"""Right column: whole recording folded into rows; click a cell to view that time."""
 
 from __future__ import annotations
 
@@ -35,6 +35,9 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings) -
         section("Activity heatmap")
         if recording.phase != "ready" or recording.summary is None:
             st.caption("Heatmap needs the 1 kHz summary (still building…).")
+            return
+        if state.detection(run) is None:
+            st.caption("Run **Detect peaks** to show the heatmap.")
             return
 
         row_s = settings.heatmap_row_s
