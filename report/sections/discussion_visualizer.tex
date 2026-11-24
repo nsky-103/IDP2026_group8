@@ -1,9 +1,11 @@
+% Kazuki: discussion for Loading / Detail (LTTB) / Event list.
+
 \section{Discussion}
 
-The Streamlit tool is meant for interactive browsing, not for replacing the offline
-pipeline. Coarse-first loading trades a short preview phase for responsiveness on
-multi-gigabyte files; detection still waits for the \SI{1}{\kilo\hertz} summary.
-LTTB improves visual fidelity of peaks under a fixed point budget, but the downsampled
-series is for display only---quantitative detection should use the \SI{1}{\kilo\hertz}
-summary or exact sample windows. Alternative downsamplers (for example stride) remain
-available in the UI for comparison.
+Coarse-first loading improves responsiveness on multi-gigabyte files, but detection and
+full-accuracy views still require the \SI{1}{\kilo\hertz} summary. LTTB improves visual peak
+fidelity under a fixed point budget; the downsampled series is for display only, while
+detection uses the summary or exact windows. The event list is limited to the strongest
+accepted pieces so the UI stays usable on long recordings with many detections; rejected
+(\texttt{water}) pieces are omitted from that list unless shown elsewhere as rejected
+markers.

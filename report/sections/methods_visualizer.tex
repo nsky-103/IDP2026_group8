@@ -1,25 +1,31 @@
-\section{Materials and methods}
+% Kazuki: Loading, Detail window (LTTB), Event list.
+% Intended under \subsection{Visualizer} (Keito owns Overview, layout, overview window, heatmap).
 
-Large Marginum CSV files are several gigabytes at \SI{50}{\kilo\hertz}, so they cannot be
-loaded and plotted as a single dense series in a browser. We built an interactive
-Streamlit application that loads a recording, shows a coarse overview, and lets the user
-inspect selected time windows in detail.
+\subsubsection{Loading}
+Large Marginum CSV files are several gigabytes at \SI{50}{\kilo\hertz}. Opening a file
+therefore follows a coarse-first path in a background job: a lightweight preview (and row
+index) appears first so the user can browse immediately; the recording is then reduced to a
+\SI{1}{\kilo\hertz} summary (mean and envelope). Detection and accurate detail views wait
+until that summary is ready. The index and summary are cached on disk so later opens of the
+same file skip most of the work.
 
-\subsection{Coarse-first loading}
-Opening a file first builds a lightweight preview (and a row index) so the overview can
-appear quickly. In the background the recording is reduced to a \SI{1}{\kilo\hertz} summary
-(mean and envelope). After that summary is ready, detection and accurate detail views use
-it; until then the UI remains in a preview state. Index and summary are cached so later
-opens of the same file are much faster.
-
-\subsection{Detail downsampling with LTTB}
-Even a short detail window can contain tens or hundreds of thousands of samples. Plotting
-every sample is slow and visually cluttered. We therefore downsample the detail traces for
-display with the Largest-Triangle-Three-Buckets (LTTB) algorithm of Steinarsson
-\cite{steinarsson2013} (Algorithm~4.2), implemented in the visualizer as \texttt{lttb.py}.
+\subsubsection{Detail window}
+The detail view shows the current time window at high temporal resolution. Samples for that
+window are read on demand from the CSV (or from the summary envelope for long windows). Even
+a short window can contain tens or hundreds of thousands of points, so the traces are
+downsampled for display with the Largest-Triangle-Three-Buckets (LTTB) algorithm of
+Steinarsson~\cite{steinarsson2013} (Algorithm~4.2), implemented as \texttt{lttb.py}.
 
 LTTB partitions the series into buckets and, in each bucket, keeps the point that forms the
 largest triangle with the previously selected point and the average of the next bucket.
-Compared with taking every $n$th sample (stride), LTTB better preserves perceptually
-important peaks and troughs at the same point budget, which matters when reviewing
-fluorescence spikes from aspirated tissue.
+Compared with every-$n$th stride at the same point budget, LTTB better preserves peaks and
+troughs, which matters when reviewing fluorescence spikes. Zoom and pan controls adjust the
+shared viewing window; an every-$n$th option remains available for comparison.
+
+\subsubsection{Event list}
+After Detect peaks, accepted pieces (\texttt{dyed} and \texttt{solid\_no\_dye}) are listed as
+\texttt{E1}, \texttt{E2}, \ldots, ordered by descending amplitude (with a cap on how many
+rows are drawn so the page stays responsive). Selecting a row centres the detail window on
+that event's peak time (a fixed half-width of a few seconds). A selected-event summary shows
+label, amplitude, polarity and time. Size and amount estimates are not shown in this list,
+because they are not considered reliable from these signals alone.

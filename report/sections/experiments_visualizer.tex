@@ -1,9 +1,13 @@
+% Kazuki: experiments for Loading / Detail (LTTB) / Event list.
+
 \section{Experiments}
 
-To check that LTTB is suitable for Marginum detail plots, we took a \SI{20}{\second} window
-of Sensor~2 from a suction recording and compared three representations at the same
-horizontal span: a dense reference (\(\sim\)8\,k samples in the window), LTTB reduced to
-300 points, and every-$n$th stride reduced to about 300 points. The same LTTB
-implementation as in the Streamlit detail view (\texttt{lttb.py}, after
-Steinarsson~\cite{steinarsson2013}) was used. Peak preservation was judged visually and by
-the maximum amplitude retained under each downsampler.
+For the detail downsampler, we took a \SI{20}{\second} window of Sensor~2 from a suction
+recording and compared three representations at the same span: a dense reference
+(\(\sim\)8\,k samples in the window), LTTB reduced to 300 points, and every-$n$th stride at
+about 300 points, using the same \texttt{lttb.py} implementation as the detail view
+\cite{steinarsson2013}. Peak preservation was judged visually and by the maximum amplitude
+retained under each method.
+
+Event-list behaviour was checked interactively: after Detect peaks, selecting an event row
+updates the detail window to the corresponding peak time.
