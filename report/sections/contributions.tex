@@ -1,3 +1,30 @@
 \section*{Contributions}
-% TODO: who did what (see README.md).
-% TODO: not in the required outline; check with the teacher whether to keep it.
+% Not in the required course outline; check with the teacher whether to keep it.
+Who did what, with one row per component. Where code is based on another member's idea, the exact
+lines are marked in the file, and details are in the git history.
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabular}{@{}p{0.20\linewidth}p{0.20\linewidth}p{0.55\linewidth}@{}}
+    \toprule
+    Component & Who & What \\
+    \midrule
+    Visualizer & tut-morimoto, KeitoTsubaki & The Streamlit app: layout, panels, background
+      loading, plots, detector interface. \\
+    Data access & Sora & Parallel CSV reading: row index, exact zoomed windows, 1\,kHz summary;
+      speed benchmark. \\
+    Part A: preprocessing & Unmona, Sora & Unmona: filters, ALS baseline, noise level $\sigma$ and
+      their speed-up. Sora: moved the code into this repository, idle-block handling, check of the
+      \texttt{adc1} response. \\
+    Part B: detection & Sora & Peaks, grouping into pieces, labels (no-dye level, two-channel
+      check), features and amount. The analysis behind the values (68.9 counts, 1\,s,
+      $\pm 20$\,ms) was done by Sora. \\
+    Pipeline and cache & Sora, Unmona, tut-morimoto & Sora: pipeline and command-line runner.
+      Unmona: idea of caching the reduced data. tut-morimoto: cache of the Part A output. \\
+    Documentation & Sora, KeitoTsubaki, tut-morimoto & Sora: main and core README.
+      KeitoTsubaki: setup, usage and viewer guide. tut-morimoto, KeitoTsubaki: visualizer
+      README. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
