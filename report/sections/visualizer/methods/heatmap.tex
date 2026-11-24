@@ -1,0 +1,35 @@
+% Owner: Keito
+\subsubsection{Activity heatmap}
+\label{sec:vis-heatmap}
+A recording of several hours is too long to read from a single time axis. The activity
+heatmap therefore folds the recording into rows, like lines of text
+(Figure~\ref{fig:vis-heatmap}): each row covers a fixed length of time, chosen from
+\SI{10}{\second}, \SI{30}{\second}, \SI{1}{\minute} (default), \SI{2}{\minute} and
+\SI{5}{\minute}, and is divided into 10 to 120 cells (default 60). The row of a cell gives
+the coarse time and its column the time within that row, so the whole recording is seen
+as a compact block instead of a long strip.
+
+The colour of a cell is chosen in the settings. By default it is the peak-to-peak
+amplitude of Sensor~2 in the cell, the difference between the largest maximum and the
+smallest minimum of the \SI{1}{\kilo\hertz} summary; Sensor~1 can be chosen instead.
+After detection the colour switches to the number of detected pieces per cell. The
+colour scale is Cividis, which is readable with colour-vision deficiency. The heatmap
+needs the \SI{1}{\kilo\hertz} summary and appears when it is ready.
+
+The heatmap is also a way to move through the recording. The current viewing window is
+outlined in every row it touches, and a click on a cell centres the window on that cell,
+keeping its width (Section~\ref{sec:vis-overview}). The user can thus see where the
+suctions are and jump to them directly. Plotly heatmaps do not report clicks on a cell,
+so an invisible marker is placed on every cell to receive the click and show the time
+range of the cell. When there are many rows, the heatmap scrolls inside a box of fixed
+height.
+
+\begin{figure}[H]
+  \centering
+  \IfFileExists{figures/vis_heatmap.png}{%
+    \includegraphics[width=0.8\linewidth]{figures/vis_heatmap.png}}{%
+    \fbox{\parbox{0.8\linewidth}{\centering TODO: screenshot of the activity heatmap}}}
+  \caption{Activity heatmap of a recording in one-minute rows. The dotted outline marks the
+           current viewing window; a click on a cell moves the window there.}
+  \label{fig:vis-heatmap}
+\end{figure}
