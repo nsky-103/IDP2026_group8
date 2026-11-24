@@ -1,6 +1,38 @@
 \section{Introduction}
-% TODO: background on Marginum, why detecting tissue pieces matters, project goals.
+
+Marginum measures the fluorescence of tissue pieces while they are aspirated during surgery.
+A dye makes tissue fluoresce, and the signal is recorded by two sensors. Each tissue piece
+that passes the sensor gives a peak in the signal. % CHECK: confirm the clinical background with the course material.
+Knowing how many pieces were aspirated, and how much tissue they make up, is useful because
+the surgeon cannot see this during the operation. % CHECK: confirm this motivation.
 
 The recordings are CSV files with two integer columns, \texttt{adc1} and \texttt{adc2},
-sampled at \SI{50}{\kilo\hertz}. The goal is to find each aspirated tissue piece,
-decide whether it is tissue (with or without dye) or water, and estimate the amount of tissue.
+sampled at \SI{50}{\kilo\hertz}. A single recording can last several hours and be
+\SI{7.6}{\giga\byte} large. This makes the data hard to handle in three ways:
+\begin{itemize}
+  \item The files are too large to open in a normal way, and the result is needed quickly.
+  \item The signal contains noise and a slowly drifting baseline, so the peaks cannot be
+        read from the raw values.
+  \item A peak does not tell by itself what it comes from. It can be dyed tissue, tissue without
+        dye, or water, and one piece often gives several peaks.
+\end{itemize}
+
+The goal of this project is to find each aspirated tissue piece, decide whether it is tissue
+(with or without dye) or water, and estimate the amount of tissue. The work is divided into
+two parts, which follow each other:
+\begin{description}
+  \item[Part A] reads and cleans the signal. It reduces the recording to
+        \SI{1}{\kilo\hertz}, removes noise and baseline drift, and measures the noise level
+        $\sigma$ from which the detection threshold is set (Section~\ref{sec:threshold}).
+  \item[Part B] uses the cleaned signal and $\sigma$ to detect the peaks, group them into pieces,
+        label them as dyed tissue, undyed tissue or water
+        (Section~\ref{sec:detection-methods}), and estimate the amount of tissue
+        (Section~\ref{sec:amount-methods}).
+\end{description}
+An interactive Streamlit application lets the user browse a recording and inspect every
+detected piece.
+
+The report follows the course outline. Section~\ref{sec:recordings} describes the recordings,
+and the methods, results and discussion are given for each part in turn. We used 29 recordings,
+some with a known answer (the type of every piece, or the amount aspirated), so the methods
+could be checked against the truth.
