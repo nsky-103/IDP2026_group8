@@ -37,17 +37,6 @@ pip install -r visualizer/requirements.txt
 ```
 
 Windows (PowerShell):
-Benchmarks (run from the repository root; data paths are given as arguments):
-
-```bash
-python tools/benchmark_io.py PATH_TO_CSV
-python tools/benchmark_methods.py DATA_FOLDER
-```
-
-`benchmark_io.py` measures how fast a recording opens and compares it with simpler readers.
-`benchmark_methods.py` compares the current sigma and two-channel check with simpler versions.
-
-Measurement data and anything derived from it are never committed (data policy in `visualizer/README.md`).
 
 ```powershell
 git clone https://github.com/nsky-103/IDP2026_group8.git
@@ -56,6 +45,8 @@ py -3.11 -m venv .venv
 .venv\Scripts\activate
 pip install -r visualizer/requirements.txt
 ```
+
+Measurement data and anything derived from it are never committed (data policy in `visualizer/README.md`).
 
 ## Data information
 
@@ -141,6 +132,37 @@ The page has three columns: settings on the left, plots in the center, results o
 | **Events** | Number of accepted pieces, the **amount in view** (total area of the valid pieces that start in the current frame), and the pieces largest first. **Show in plot** zooms to one. |
 | **Detection summary** | Counts per label, step timings, and the full table of pieces. |
 
+## Benchmarks
+
+Two scripts measure the numbers in the report on your own computer. Run them from the repository
+root with the virtual environment activated. They only read the data; `--json out.json` also saves
+all numbers.
+
+```bash
+python tools/benchmark_io.py PATH_TO_CSV
+python tools/benchmark_methods.py DATA_FOLDER
+```
+
+**`benchmark_io.py`**: how fast one recording opens (use the largest one, e.g. the 4.7 h recording).
+
+| Section | How to read it |
+|---|---|
+| 1. This computer | CPU, RAM and the optional speed-ups (numba, pyarrow); results depend on these |
+| 2. First open | Time for each step of the viewer when the file is opened for the first time. For a true first open, run `sudo purge` (macOS) or restart just before |
+| 3. File in memory | The same steps again. If section 2 was about as fast, the file was already in memory |
+| 4. Second open | Opening again from the app's cache; this is what the viewer does after the first time |
+| 5. Old methods | Earlier readers (csv module, pandas chunks), timed on part of the file and scaled up |
+| 6. Summary | Main numbers, peak memory, and `OK` if the 1 kHz data match the CSV |
+
+**`benchmark_methods.py`**: the current Part A/B methods against simpler ones, on every recording in
+`DATA_FOLDER` (the first run reads all files, later runs use the cache).
+
+| Section | How to read it |
+|---|---|
+| 1. Noise level sigma | Events per recording with the current sigma (idle parts dropped) and with all parts. Fewer false events with the current one, mainly in recordings with long idle parts |
+| 2. Two-channel check | Chance rate: how often adc1 shows a peak by chance (lower is better; above 0.20 the check is not used). Confirmed: share of dyed events also seen on adc1 (higher is better) |
+| 3. Big pieces | Labels per section with both checks, if the Big pieces recording is in the folder |
+
 ## Code structure
 
 ```
@@ -151,7 +173,8 @@ core/                    data access and algorithms, no UI (details: core/README
   pipeline.py            analyse(): runs 1 -> Part A -> Part B, with the cache
 tools/
   run_pipeline.py        command-line analysis of files or folders
-  benchmark_io.py        speed test of each step (writes result.json)
+  benchmark_io.py        speed test of each step (with --json, saves all numbers)
+  benchmark_methods.py   current Part A/B methods against simpler ones
 visualizer/              Streamlit viewer (details: visualizer/README.md)
   app.py                 page layout
   panels/                one area of the page each (import, controls, overview, detail, heatmap, events)
