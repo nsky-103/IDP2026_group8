@@ -1,16 +1,20 @@
+% Kazuki: results for Detail window (LTTB) and brief Event list note.
+
 \section{Results}
 
-Figure~\ref{fig:lttb} shows a \SI{20}{\second} window of Sensor~2 from a Marginum suction
-recording. The dense reference (\(\sim\)8\,k points in the window) is drawn in grey. With a
-budget of 300 points, LTTB tracks the spikes closely, whereas every-$n$th stride at the same
-budget misses the tallest peak (maximum 1874 counts with LTTB versus 1347 with stride in
-this example). The visualizer therefore uses LTTB as the default detail downsampler.
+Figure~\ref{fig:lttb} shows the LTTB comparison. With a budget of 300 points, LTTB tracks the
+spikes of the dense reference, whereas stride at the same budget misses the tallest peak
+(maximum 1874 counts with LTTB versus 1347 with stride in this example). LTTB is therefore
+the default detail downsampler.
 
 \begin{figure}[ht]
   \centering
   \includegraphics[width=\textwidth]{figures/lttb_marginum_visualization.png}
-  \caption{Marginum suction signal (Sensor~2): LTTB visual downsampling versus a dense
-  reference (top) and versus every-$n$th stride at the same 300-point budget (bottom).
-  Implementation follows Steinarsson~\cite{steinarsson2013}.}
+  \caption{Marginum suction signal (Sensor~2): LTTB versus a dense reference (top) and versus
+  every-$n$th stride at the same 300-point budget (bottom), after
+  Steinarsson~\cite{steinarsson2013}.}
   \label{fig:lttb}
 \end{figure}
+
+Selecting an event in the event list moves the detail window to that piece; the selected
+event card updates to the corresponding label and peak time.
