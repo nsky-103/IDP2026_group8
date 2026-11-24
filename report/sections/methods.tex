@@ -7,18 +7,7 @@ maximum of every 50 samples (\SI{50}{\kilo\hertz} $\rightarrow$ \SI{1}{\kilo\her
 The signal has no content above about \SI{500}{\hertz}, so the \SI{1}{\milli\second} mean keeps
 99.3--99.9\,\% of the peak height. The index and summary are cached for later opens.
 
-\subsection{Preprocessing (Part A)}
-For each channel:
-\begin{enumerate}
-  \item median filter (3 samples) to remove single-sample spikes;
-  \item Savitzky--Golay filter (7 samples, order 3);
-  \item subtraction of a baseline fitted by asymmetric least squares (ALS) on \SI{10}{\hertz}
-        block means and interpolated back to \SI{1}{\kilo\hertz};
-  \item noise level $\sigma$: RMS of the standard deviation of the quietest 10\,\% of
-        \SI{200}{\milli\second} blocks, after dropping idle blocks.
-\end{enumerate}
-If the median ratio \texttt{adc1}/\texttt{adc2} at the 50 largest \texttt{adc2} peaks is below
-0.1, \texttt{adc1} is not used for the two-channel check.
+\input{sections/partA_methods}
 
 \input{sections/detection_methods}
 
