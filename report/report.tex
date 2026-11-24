@@ -20,12 +20,19 @@
 \maketitle
 
 \begin{abstract}
-% TODO: summarise the problem, the method and the main results in 150--200 words.
-We present a pipeline that reads large two-channel Marginum fluorescence recordings
-(\SI{50}{\kilo\hertz}, up to several gigabytes), removes noise and baseline drift,
-detects aspirated tissue pieces and labels each one as dyed tissue, undyed tissue or water.
-An interactive Streamlit application lets the user browse the recording and inspect every
-detected piece.
+Marginum measures the fluorescence of tissue pieces while they are aspirated. We present a
+pipeline for its two-channel recordings (\SI{50}{\kilo\hertz}, up to \SI{7.6}{\giga\byte}) that
+finds each piece, labels it as dyed tissue, tissue without dye or water, and estimates the
+amount of tissue. The recording is read in parallel and reduced to \SI{1}{\kilo\hertz}. The
+signal is cleaned with a median and a Savitzky--Golay filter and a baseline correction, and the
+detection threshold is set to ten times the noise level of each recording. Peaks less than one
+second apart form one piece, and each piece is labelled from its brightness and from a check
+on the second channel. On 29 recordings, the largest file opens in \SI{11}{\second}, and in
+\SI{1.2}{\second} the next time. In the recording with known pieces, every piece was found and
+41 of 45 dyed pieces were labelled dyed. However, water after the tissue was labelled as
+tissue. When the dye concentration is known, the piece area gives the amount with an error of
+15--21\,\%, but with an unknown concentration the error is 68\,\%. An interactive Streamlit
+application lets the user inspect every detected piece.
 \end{abstract}
 
 \tableofcontents
