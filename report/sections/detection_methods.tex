@@ -1,50 +1,27 @@
 \subsection{Detection and classification (Part B)}
 \label{sec:detection-methods}
-\subsubsection{Finding events}
 We find peaks with a prominence above the threshold $k\sigma$ (Section~\ref{sec:threshold})
 on both channels. One tissue piece often gives
 several peaks, so peaks less than \SI{1}{\second} apart are grouped into one \emph{event}. An
-event represents either a piece of tissue or water. Each event is labelled from its largest peak (Table~\ref{tab:labels}).
+event represents either a piece of tissue or water. Each event is labelled from its largest peak.
 
-\subsubsection{Brightness first}
-An event whose largest peak is above the no-dye level is
+Brightness comes first: an event whose largest peak is above the no-dye level is
 \texttt{dyed}. The no-dye level (68.9 counts) is the top 0.1\,\% of the peaks in the water-only
 recordings.
 
-\subsubsection{Two-channel check for dim events}
-A dim event is either tissue without dye or water.
+A dim event is either tissue without dye or water, which we separate with a two-channel check.
 Solid tissue also gives a peak on \texttt{adc1}, water usually does not. The check passes if an
 \texttt{adc1} peak of at least 5\,\% of the height lies within \SI{\pm 20}{\milli\second} of the
 largest \texttt{adc2} peak, after correcting the delay between the channels (measured for each
-recording). If \texttt{adc1} hardly responds (Part A), or if the check passes by chance in more
-than 20\,\% of the cases (see below), it is not used and dim events are \texttt{undecided}.
+recording). The event is then \texttt{solid\_no\_dye}, otherwise \texttt{water}. If \texttt{adc1}
+hardly responds (Part A), or if the check passes by chance in more than 20\,\% of the cases (see
+below), it is not used and dim events are \texttt{undecided}.
 
-\begin{table}[H]
-  \centering
-  \caption{Labels.}
-  \label{tab:labels}
-  \begin{tabular}{ll}
-    \toprule
-    Largest peak & Label \\
-    \midrule
-    above the no-dye level & \texttt{dyed} \\
-    below, two-channel check passed & \texttt{solid\_no\_dye} \\
-    below, check failed & \texttt{water} \\
-    below, check not usable & \texttt{undecided} \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\subsubsection{Measures for checking the detection}
-Besides the known answers, we used:
-\begin{itemize}
-  \item \textbf{chance rate}: the share of events that pass the two-channel check when
-        \texttt{adc1} is shifted by 2--\SI{20}{\second}, so that real pairs cannot match;
-  \item \textbf{confirmation rate}: the share of \texttt{dyed} pieces that also pass the check.
-        Dyed pieces are solid, so it should be high;
-  \item \textbf{noisiness}: the total up-and-down movement of \texttt{adc2} inside an event
-        divided by twice its largest peak (1 for one clean hump);
-  \item \textbf{signal outside the events}: the share of the signal above $3\sigma$ in a
-        suction that is not inside any event. It grows if small peaks are lost under the
-        threshold.
-\end{itemize}
+Besides the known answers, we used four measures to check the detection. The \emph{chance rate}
+is the share of events that pass the two-channel check when \texttt{adc1} is shifted by
+2--\SI{20}{\second}, so that real pairs cannot match. The \emph{confirmation rate} is the share
+of \texttt{dyed} pieces that also pass the check; dyed pieces are solid, so it should be high.
+The \emph{noisiness} is the total up-and-down movement of \texttt{adc2} inside an event divided
+by twice its largest peak (1 for one clean hump). The \emph{signal outside the events} is the
+share of the signal above $3\sigma$ in a suction that is not inside any event; it grows if small
+peaks are lost under the threshold.

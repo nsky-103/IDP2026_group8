@@ -1,31 +1,15 @@
-\subsection{Recordings}
 \label{sec:recordings}
-We used 29 Marginum recordings (two channels, \SI{50}{\kilo\hertz}; Table~\ref{tab:recordings}):
+We used 29 Marginum recordings (two channels, \SI{50}{\kilo\hertz}):
 \begin{itemize}
-  \item \textbf{Big pieces}: 15 pieces each of high, middle, low and zero (no dye)
-        concentration, then water. The type of every piece is known.
-  \item \textbf{Water only}: no tissue, so every event is water.
-  \item \textbf{Known volumes (2025)}: 1--\SI{4}{\milli\litre} at high (dye 4.86\,C) or middle
-        (1.02\,C) concentration, with 0--3 re-suctions in the same file. One recording is
-        \SI{4.7}{\hour} long (\SI{7.6}{\giga\byte}).
-  \item \textbf{Tumour}: 1, 1, 1, 2 and \SI{3}{\gram} of tumour tissue at high concentration,
-        with the re-suction in a separate file.
-  \item \textbf{Demo sessions}: no known answer; used to check that the pipeline runs.
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}
+  \item \textbf{Big pieces} (1 file, for the labels): 15 pieces each of high, middle, low and
+        zero (no dye) concentration, then water. The type of every piece is known.
+  \item \textbf{Water only} (1 file, for the labels): no tissue, so every event is water.
+  \item \textbf{Known volumes (2025)} (9 files, for the amount and the speed):
+        1--\SI{4}{\milli\litre} at high (dye 4.86\,C) or middle (1.02\,C) concentration, with
+        0--3 re-suctions in the same file. One recording is \SI{4.7}{\hour} long
+        (\SI{7.6}{\giga\byte}).
+  \item \textbf{Tumour} (10 files, for the amount): 1, 1, 1, 2 and \SI{3}{\gram} of tumour tissue
+        at high concentration, with the re-suction in a separate file.
+  \item \textbf{Demo sessions} (8 files): no known answer; used to check that the pipeline runs.
 \end{itemize}
-
-\begin{table}[H]
-  \centering
-  \caption{Recordings used.}
-  \label{tab:recordings}
-  \begin{tabular}{lrl}
-    \toprule
-    Group & Files & Used for \\
-    \midrule
-    Big pieces & 1 & labels \\
-    Water only & 1 & labels \\
-    Known volumes (2025) & 9 & amount, speed \\
-    Tumour & 10 & amount \\
-    Demo sessions & 8 & running test \\
-    \bottomrule
-  \end{tabular}
-\end{table}

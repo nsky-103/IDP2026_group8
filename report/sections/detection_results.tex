@@ -1,29 +1,12 @@
 \subsection{Detection results}
 \label{sec:detection-results}
-\subsubsection{Big pieces}
-Every piece was found (Table~\ref{tab:bigpieces},
-Figure~\ref{fig:detection}); in the high section two pieces were split in two, giving 17. 41 of
-the 45 dyed pieces were labelled \texttt{dyed}; the other pieces in these sections were below the
-no-dye level and labelled \texttt{solid\_no\_dye}, so all were counted as tissue. No no-dye piece
-was labelled \texttt{dyed}. However, all 4 water events after the tissue passed the two-channel check and were labelled \texttt{solid\_no\_dye}.
-In the water-only recording, 1 of 39 events reached the no-dye level.
-
-\begin{table}[H]
-  \centering
-  \caption{Labels in the Big pieces recording, by section.}
-  \label{tab:bigpieces}
-  \begin{tabular}{lrrrr}
-    \toprule
-    Section & Events & \texttt{dyed} & \texttt{solid\_no\_dye} & \texttt{water} \\
-    \midrule
-    High & 17 & 13 & 4 & 0 \\
-    Middle & 15 & 14 & 1 & 0 \\
-    Low & 15 & 14 & 1 & 0 \\
-    Zero (no dye) & 15 & 0 & 15 & 0 \\
-    Water & 4 & 0 & 4 & 0 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+In the Big pieces recording, every piece was found (Figure~\ref{fig:detection}); in the high
+section two pieces were split in two, giving 17 events. 41 of the 45 dyed pieces were labelled
+\texttt{dyed}. The other events in these sections were below the no-dye level and labelled
+\texttt{solid\_no\_dye}, so all were counted as tissue. All 15 no-dye pieces were labelled
+\texttt{solid\_no\_dye}. However, all 4 water events after the tissue passed the two-channel
+check and were labelled \texttt{solid\_no\_dye} as well. In the water-only recording, 1 of 39
+events reached the no-dye level.
 
 \begin{figure}[H]
   \centering
@@ -33,7 +16,6 @@ In the water-only recording, 1 of 39 events reached the no-dye level.
   \label{fig:detection}
 \end{figure}
 
-\subsubsection{All recordings}
 The pipeline ran to the end on all 29 recordings
 (Table~\ref{tab:allrecordings}). In the 28 recordings where \texttt{adc1} responds, the chance
 rate was at most 15\,\% (median 5\,\%), so the two-channel check was used in all of them, and 82\,\%
@@ -56,7 +38,6 @@ of the \texttt{dyed} pieces also passed the check (62--100\,\% per recording).
   \end{tabular}
 \end{table}
 
-\subsubsection{Comparison with simpler methods}
 To see what the two less obvious steps add, we ran the same recordings with a simpler version of
 each step and everything else unchanged (\texttt{tools/benchmark\_methods.py};
 Table~\ref{tab:simple}). For $\sigma$, the simple version uses all \SI{200}{\milli\second}

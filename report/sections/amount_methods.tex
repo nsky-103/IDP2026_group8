@@ -1,6 +1,5 @@
 \subsection{Amount of tissue}
 \label{sec:amount-methods}
-\subsubsection{Measures and model}
 For each suction we sum three measures over its \texttt{dyed} and \texttt{solid\_no\_dye}
 pieces: the number of pieces, height\,$\times$\,width, and the area (counts\,$\times$\,ms).
 We chose the area as the main measure before seeing the results, because it is the fluorescence
@@ -18,9 +17,8 @@ where $\beta_j$ is the effect of the suction number and $u_i$ a random effect of
 The amount of a first
 suction is estimated as $\hat{A} = S / k$.
 
-\subsubsection{Measures without the concentration}
-The height and the area both grow with the dye
-concentration, so their ratio should not. We tried the sum over the pieces of area\,/\,height,
+We also tried measures that do not need the concentration. The height and the area both grow with the dye
+concentration, so their ratio should not. We took the sum over the pieces of area\,/\,height,
 similar to pulse-width sizing in flow cytometry~\cite{sharpless1976}, and of two widths measured
 relative to each piece's own height (full width at half maximum of the highest peak, and the
 time above half of the largest peak).
