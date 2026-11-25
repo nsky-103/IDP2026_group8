@@ -36,10 +36,6 @@ def render(recording: signal_io.Recording, run: str, total_s: float, settings) -
         if recording.phase != "ready" or recording.summary is None:
             st.caption("Heatmap needs the 1 kHz summary (still building…).")
             return
-        if state.detection(run) is None:
-            st.caption("Run **Detect peaks** to show the heatmap.")
-            return
-
         row_s = settings.heatmap_row_s
         bin_s = row_s / settings.heatmap_cells
         n_bins = max(1, int(np.ceil(total_s / bin_s - 1e-9)))

@@ -37,28 +37,33 @@ def render() -> Settings:
     channels = [name for i, name in enumerate((plots.SENSOR1, plots.SENSOR2), start=1)
                 if st.checkbox(f"Ch{i} · {name}", value=True)]
 
-    # Heatmap controls above Detection (layout preference: browse activity before detecting).
-    section("Heatmap")
-    row_label = st.selectbox("Row length", list(heatmap.ROW_CHOICES), index=2, key="hm_row")
-    cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
-    metrics = list(heatmap.METRICS)
-    if not state.detection(state.active_run() or ""):
-        metrics.remove(heatmap.EVENTS_METRIC)
-    metric = st.selectbox("Colour by", metrics, key="hm_metric")
+    # Heatmap controls above Detection, collapsed like the other settings groups.
+    with st.expander("Heatmap settings"):
+        row_label = st.selectbox("Row length", list(heatmap.ROW_CHOICES), index=2, key="hm_row")
+        cells = st.selectbox("Cells / row", [10, 20, 30, 60, 120], index=3, key="hm_cells")
+        metrics = list(heatmap.METRICS)  # first entry (Sensor 2) is the default
+        if not state.detection(state.active_run() or ""):
+            metrics.remove(heatmap.EVENTS_METRIC)
+        # After a detection run, switch to the event counts (set before the widget is drawn).
+        if st.session_state.pop("_hm_metric_pending", None) in metrics:
+            st.session_state["hm_metric"] = heatmap.EVENTS_METRIC
+        if st.session_state.get("hm_metric") not in metrics:
+            st.session_state["hm_metric"] = metrics[0]
+        metric = st.selectbox("Colour by", metrics, key="hm_metric")
 
     section("Detection")
-    detector = detectors.DETECTORS[st.selectbox("Algorithm", list(detectors.DETECTORS))]
-    with st.expander("Detection parameters"):
-        if detector.description:
-            st.caption(detector.description)
-        params = {p.key: _param_widget(p, key=f"param_{detector.name}_{p.key}") for p in detector.params}
-    show_rejected = st.checkbox("Show rejected / water (gray)", value=True)
     run = state.active_run()
     detect_clicked = st.button("Detect peaks", type="primary", disabled=not state.is_ready(run),
                                width="stretch",
                                help="Enabled after the 1 kHz summary is ready.")
     if run and not state.is_ready(run):
         st.caption("Waiting for 1 kHz summary…")
+    detector = next(iter(detectors.DETECTORS.values()))  # only one algorithm, so no picker
+    with st.expander("Detection parameters"):
+        if detector.description:
+            st.caption(detector.description)
+        params = {p.key: _param_widget(p, key=f"param_{detector.name}_{p.key}") for p in detector.params}
+    show_rejected = st.checkbox("Show rejected / water (gray)", value=True)
 
     with st.expander("Display settings"):
         fs_hz = st.number_input("Sample rate (Hz)", value=float(signal_io.DEFAULT_FS_HZ),
@@ -106,4 +111,5 @@ def run_detection(run: str, recording: signal_io.Recording, settings: Settings) 
             st.error(f"Detection failed: {exc}")
             return
     st.session_state.pop("selected_event", None)
+    st.session_state["_hm_metric_pending"] = heatmap.EVENTS_METRIC  # heatmap shows events next run
     st.rerun()  # redraw so the runs list shows the new event count
