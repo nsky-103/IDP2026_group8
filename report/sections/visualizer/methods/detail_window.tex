@@ -11,4 +11,18 @@ LTTB partitions the series into buckets and, in each bucket, keeps the point tha
 largest triangle with the previously selected point and the average of the next bucket.
 Compared with every-$n$th stride at the same point budget, LTTB better preserves peaks and
 troughs, which matters when reviewing fluorescence spikes. Zoom and pan controls adjust the
-shared viewing window; an every-$n$th option remains available for comparison.
+shared viewing window; an every-$n$th option remains available for comparison. After
+detection, the detected pieces are marked at their peaks (Figure~\ref{fig:vis-detail}):
+accepted pieces with red triangles and rejected peaks (water) in grey, which can be hidden
+in the settings.
+
+\begin{figure}[H]
+  \centering
+  \setlength{\fboxsep}{0pt}%
+  \fbox{\includegraphics[width=0.7\linewidth]{img/detail_view.pdf}}
+  \caption{Detail window after detection, showing the first \SI{320}{\second} of a
+           recording. Triangles mark the detected pieces on Sensor~2: accepted pieces in
+           red, rejected peaks in grey. The buttons above the plot zoom and pan the
+           viewing window.}
+  \label{fig:vis-detail}
+\end{figure}
