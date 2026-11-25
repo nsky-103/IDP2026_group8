@@ -29,6 +29,10 @@ CSS = """
 [data-testid="stColumn"]:has(.st-key-right_panel) {
     max-height: calc(100vh - 4.5rem); overflow-y: auto; overscroll-behavior: contain;
 }
+/* Top bar: hide Deploy, the Running/Stop indicator and the ⋮ menu (R = rerun still works).
+   Done in CSS, not config.toml, so it works whichever folder the app is started from. */
+[data-testid="stToolbar"], [data-testid="stAppDeployButton"], [data-testid="stStatusWidget"],
+[data-testid="stMainMenu"] { display: none !important; }
 /* Heatmap box: tighter than the default bordered container */
 .st-key-heatmap_box { padding: 0.5rem 0.6rem; }
 .st-key-heatmap_box .sv-section { margin-top: 0; }
