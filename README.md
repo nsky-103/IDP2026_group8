@@ -5,10 +5,10 @@ reads the raw two-channel recordings, finds each aspirated tissue piece, judges 
 undyed tissue or only water, and sums up the amount of tissue. It has a command-line analysis and an
 interactive viewer.
 
-![Interactive viewer: full-recording overview, zoomed detail with detected pieces, activity heatmap and the selected piece](images/viewer.png)
+![Interactive viewer: settings on the left, full-recording overview and detail window in the center, activity heatmap and detection results on the right](images/viewer.png)
 
 Contents: [Requirements](#requirements) · [Setup](#setup) · [Data](#data-information) ·
-[How to run](#how-to-run) · [Code structure](#code-structure) ·
+[How to run](#how-to-run) · [Benchmarks](#benchmarks) · [Code structure](#code-structure) ·
 [Method summary](#method-summary) · [Contributions](#contributions)
 
 ## Requirements
@@ -93,14 +93,14 @@ Open http://localhost:8501 in the browser. Quick start:
 
 1. **Browse…** (top left) → pick `5. suction_HIGH_CONC_1ml_and_no_resuction.csv`.
 2. Wait until the run shows *ready* → **Detect peaks**.
-3. Click a piece in the **Events** list (right) → **Show in plot** to zoom to it.
+3. Open **Events** (right) and click a piece to move the detail window to it.
 
 The same analysis can also be run without the viewer: `python tools/run_pipeline.py PATH_TO_CSV_OR_FOLDER`
 (options: `python tools/run_pipeline.py --help`).
 
 ### Using the viewer
 
-The page has three columns: settings on the left, plots in the center, results on the right.
+The page has three columns: settings on the left, plots in the center, heatmap and results on the right.
 
 **Left — load and settings**
 
@@ -110,27 +110,26 @@ The page has three columns: settings on the left, plots in the center, results o
 | *…or paste a local path* → **Load** | Same, by typing or pasting the path (quotes are removed). |
 | **Runs** | Every loaded recording, with its state (*preview* → *ready*) and number of events. Click one to switch to it. |
 | **Channels** | Show or hide Sensor 1 (adc1) and Sensor 2 (adc2) in the plots. |
-| **Algorithm** / **Detection parameters** | `Method B · core Part A/B` is the method described below. Its parameters (peak prominence in x sigma, max gap inside one piece, no-dye level) can be changed here; the defaults are the tuned values. |
+| **Heatmap settings** | Row length (10 s – 5 min), cells per row, and what the colour shows (signal activity of Sensor 2 or 1, or number of detected pieces). After **Detect peaks** it switches to the number of pieces. |
+| **Detect peaks** | Runs detection with the method described below. Enabled once the 1 kHz summary is ready (a few seconds; the first load of a large file takes longer). |
+| **Detection parameters** | Peak prominence in x sigma, max gap inside one piece and no-dye level; the defaults are the tuned values. |
 | **Show rejected / water (gray)** | Also show `water` and `undecided` pieces, in gray. |
-| **Detect peaks** | Runs detection. Enabled once the 1 kHz summary is ready (a few seconds; the first load of a large file takes longer). |
-| **Heatmap** | Row length (10 s – 5 min), cells per row, and what the colour shows (signal activity or number of detected pieces). |
 | **Display settings** | Sample rate (50 kHz), max plot points, and how the detail plot is thinned (LTTB keeps the peaks). |
 
 **Center — plots**
 
 | Area | How to use it |
 |---|---|
-| **Full recording** (top) | The whole recording with a triangle for each detected piece. The black frame is the part shown below: drag a box on the chart or move the slider handles to change it. **Window size** sets its width. |
-| **Detail** (middle) | Exact samples of both channels in the frame, with the pieces marked. Buttons: **Zoom in / out**, **Pan left / right**, **Default** (first 30 s), **Fit all** (whole recording). Drag the plot to pan. |
-| **Activity heatmap** (bottom) | The recording folded into rows (e.g. one row per minute); bright cells = strong signal. Click a cell to jump there. |
+| **Full recording** (top) | The whole recording, with a mark for each detected piece. The black frame is the part shown below: drag it to move it, drag its sides to change its width, or click outside it to centre it there. **Window size** sets the width. |
+| **Detail window** (below) | Exact samples of both channels in the frame, with the pieces marked by triangles (rejected ones in gray). Buttons: **Zoom in / out**, **Pan left / right**, **Default** (first 5 s), **Fit all** (whole recording). Drag the plot to pan. |
 
-**Right — results**
+**Right — heatmap and results**
 
 | Area | What it shows |
 |---|---|
-| **Selected event** | Label (`dyed`, `solid_no_dye`, …), amplitude and time of the selected piece. |
-| **Events** | Number of accepted pieces, the **amount in view** (total area of the valid pieces that start in the current frame), and the pieces largest first. **Show in plot** zooms to one. |
-| **Detection summary** | Counts per label, step timings, and the full table of pieces. |
+| **Activity heatmap** (top) | The recording folded into rows (e.g. one row per minute); bright cells = strong signal, or pieces after detection. The dotted outline is the current frame. Click a cell to jump there. |
+| **Detection summary** | Counts per label and the full table of pieces. |
+| **Events** | The accepted pieces, largest first, each with its time, label and amplitude. Click one to centre the frame on it (the width stays the same). |
 
 ## Benchmarks
 
@@ -221,23 +220,6 @@ file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`. Details a
 | Visualizer | `visualizer/` | tut-morimoto, KeitoTsubaki | The Streamlit app: layout, panels, background loading, plots, detector interface |
 | Data access | `core/fast_io.py`, `tools/benchmark_io.py` | Sora | Parallel CSV reading: row index, exact zoomed windows, 1 kHz summary; speed benchmark |
 | Part A: preprocessing | `core/preprocessing.py` | Unmona, Sora | Unmona: filters, ALS baseline and sigma (original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`) and their speed-up. Sora: moved it into this repository, idle-block handling (#3), adc1 response check (#4) |
-| Part B: detection | `core/detection.py` | Sora | Peaks, grouping into pieces, labels (no-dye level, two-channel check), features, amount. The analysis behind the values (68.9 counts, 1 s, ±20 ms) was done by Sora outside this repository (summary in [`core/README.md`](core/README.md)) |
+| Part B: detection | `core/detection.py`, `tools/benchmark_methods.py` | Sora | Peaks, grouping into pieces, labels (no-dye level, two-channel check), features, amount; comparison with simpler methods. The analysis behind the values (68.9 counts, 1 s, ±20 ms) was done by Sora outside this repository (summary in [`core/README.md`](core/README.md)) |
 | Pipeline and cache | `core/pipeline.py`, `tools/run_pipeline.py` | Sora, Unmona, tut-morimoto | Sora: pipeline and command-line runner. Unmona: idea of caching the reduced data (`idp/fast.py`). tut-morimoto: cache of the Part A output (#17) |
 | Documentation | `README.md`, `core/README.md`, `visualizer/README.md` | Sora, KeitoTsubaki, tut-morimoto | Sora: `README.md` and `core/README.md`. KeitoTsubaki: setup, usage and viewer guide. tut-morimoto, KeitoTsubaki: `visualizer/README.md` |
-Who did what, per file. When code is based on another member's idea, the exact lines are marked in the
-file with `# ---- Idea: <name> ...` and `# ---- end of <name>'s idea`.
-
-| Part | Files | Who |
-|---|---|---|
-| Visualizer app | `visualizer/` | tut-morimoto, KeitoTsubaki (see git history) |
-| Fast CSV access: row index, zoomed windows, 1 kHz summary | `core/fast_io.py`, `tools/benchmark_io.py` | Sora |
-| Comparison of the methods with simpler versions | `tools/benchmark_methods.py` | Sora |
-| Preprocessing: median + Savitzky-Golay, ALS baseline fitted on 10 Hz block means, sigma (quietest 10% of 200 ms blocks) | `core/preprocessing.py` (marked block) | **Unmona** (idea and original code in [udgithubit/IDP](https://github.com/udgithubit/IDP), `idp/method.py`); moved into this repository by Sora |
-| Peak detection, grouping into pieces (1 s), judgement (no-dye level, two-channel check), features, amount (total area) | `core/detection.py` | Sora |
-| Cache of the reduced data for the next open | `core/pipeline.py` (marked block) | **Unmona** (idea, `idp/fast.py`); written by Sora |
-| Dropping idle blocks before sigma (#3) | `core/preprocessing.py` (marked inside `quiet_sigma`) | Sora |
-| adc1 response check, `undecided` label (#4) | `core/preprocessing.py`, `core/detection.py` | Sora |
-| Pipeline and command-line runner | `core/pipeline.py`, `tools/run_pipeline.py` | Sora |
-
-Analysis behind the values (no-dye level 68.9, 1 s gap, ±20 ms) was done by Sora outside this
-repository; the results are summarised in `core/README.md`.
