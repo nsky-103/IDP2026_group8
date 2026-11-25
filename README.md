@@ -134,7 +134,7 @@ The page has three columns: settings on the left, plots in the center, results o
 
 ## Benchmarks
 
-Two scripts measure the numbers in the report on your own computer. Run them from the repository
+Two scripts measure the speed and the comparison with simpler methods on your own computer. Run them from the repository
 root with the virtual environment activated. They only read the data; `--json out.json` also saves
 all numbers.
 
@@ -159,7 +159,7 @@ python tools/benchmark_methods.py DATA_FOLDER
 
 | Section | How to read it |
 |---|---|
-| 1. Noise level sigma | Events per recording with the current sigma (idle parts dropped) and with all parts. Fewer false events with the current one, mainly in recordings with long idle parts |
+| 1. Noise level sigma | Events per recording with the current sigma (idle parts dropped) and with all parts. With all parts, idle periods make sigma too small and separate pieces join into one event, so there are fewer events, mainly in recordings with long idle parts |
 | 2. Two-channel check | Chance rate: how often adc1 shows a peak by chance (lower is better; above 0.20 the check is not used). Confirmed: share of dyed events also seen on adc1 (higher is better) |
 | 3. Big pieces | Labels per section with both checks, if the Big pieces recording is in the folder |
 
