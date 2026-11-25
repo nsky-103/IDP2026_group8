@@ -142,10 +142,11 @@ def slider_drawn() -> None:
     ss["_overview_slider_live"] = True
 
 
-def select_event(event_id: str, t_peak: float, total_s: float, half_width_s: float) -> None:
-    """Select an event and zoom the window to it."""
+def select_event(event_id: str, t_peak: float, total_s: float) -> None:
+    """Select an event and centre the window on it, keeping the current width."""
     ss["selected_event"] = event_id
-    set_window(*viewport.around(t_peak, half_width_s, total_s), total_s)
+    w0, w1 = window(total_s)
+    set_window(*viewport.centred(t_peak, w1 - w0, total_s), total_s)
 
 
 # ---- chart keys -------------------------------------------------------------

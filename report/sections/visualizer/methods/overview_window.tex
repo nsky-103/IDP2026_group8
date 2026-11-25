@@ -30,10 +30,10 @@ again, so the slider and the frame always agree.
 
 \begin{figure}[H]
   \centering
-  \IfFileExists{figures/vis_overview_window.png}{%
-    \includegraphics[width=\linewidth]{figures/vis_overview_window.png}}{%
-    \fbox{\parbox{0.9\linewidth}{\centering TODO: screenshot of the overview strip}}}
-  \caption{Overview of a whole recording with the markers of the detected pieces and the
-           frame of the viewing window, and the width slider below it.}
+  \setlength{\fboxsep}{0pt}%
+  \fbox{\includegraphics[width=0.8\linewidth]{img/overview.pdf}}
+  \caption{Overview strip of a recording of about 4.7\,h. The frame marks the viewing
+           window (here \SIrange{6756}{7077}{\second}); its sides are dragged to change
+           the width, which is also set with the slider below.}
   \label{fig:vis-overview}
 \end{figure}

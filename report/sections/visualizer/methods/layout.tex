@@ -32,8 +32,8 @@ through them while the plots stay in view.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{../images/viewer.png}
-  % TODO (Keito): replace with an annotated screenshot (left / centre / right marked).
+  \setlength{\fboxsep}{0pt}%
+  \fbox{\includegraphics[width=\dimexpr\linewidth-2\fboxrule\relax]{img/app.pdf}}
   \caption{The visualizer. Left: loading and settings. Centre: overview of the whole
            recording with the viewing window, and the detail window. Right: activity
            heatmap and the detected pieces.}

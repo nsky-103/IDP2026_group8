@@ -11,7 +11,7 @@ Page layout                                  file
     center   full-recording overview         panels/overview.py
              detail zoom                     panels/detail.py
     right    activity heatmap                panels/heatmap.py
-             selected event · events list    panels/events.py
+             detection summary · events      panels/events.py
 
 Other files
 -----------
